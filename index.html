@@ -1,0 +1,1686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Silly Cam</title>
+<style>
+  :root { --yellow: #FFFC00; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", "Segoe UI Rounded", "Segoe UI", sans-serif; color: #fff; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  button { font: inherit; border: 0; background: none; color: inherit; cursor: pointer; padding: 0; }
+  .hidden { display: none !important; }
+
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #stage #gl { inset: auto; transform-origin: center; visibility: hidden; }
+  #stage { overflow: hidden; }
+  video { display: none; }
+
+  /* start / error screen */
+  #start { position: fixed; inset: 0; z-index: 20; background: var(--yellow); color: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 30px; text-align: center; }
+  #start .faces { font-size: 64px; letter-spacing: 6px; animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-8px) rotate(-3deg); } }
+  #start h1 { margin: 0; font-size: 46px; font-weight: 900; letter-spacing: -1px; }
+  #startBtn { background: #111; color: #fff; font-size: 24px; font-weight: 900; padding: 20px 38px; border-radius: 999px; box-shadow: 0 6px 0 rgba(0,0,0,.25); }
+  #startBtn:active { transform: translateY(3px); box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+  #start .note { font-size: 15px; font-weight: 700; opacity: .65; max-width: 300px; line-height: 1.4; }
+  #start .err { font-size: 18px; font-weight: 800; max-width: 320px; line-height: 1.4; }
+
+  /* top bar */
+  #flipBtn { position: fixed; top: max(16px, env(safe-area-inset-top)); right: 16px; z-index: 5; width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.3); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 26px; display: grid; place-items: center; }
+
+  #hint { position: fixed; top: 38%; left: 50%; transform: translateX(-50%); z-index: 4; background: rgba(0,0,0,.45); padding: 12px 20px; border-radius: 999px; font-weight: 800; font-size: 18px; white-space: nowrap; transition: opacity .3s; pointer-events: none; }
+
+  /* filter name popup */
+  #name { position: fixed; left: 50%; bottom: calc(215px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 5; font-size: 22px; font-weight: 900; text-shadow: 0 2px 8px rgba(0,0,0,.5); transition: opacity .3s; pointer-events: none; white-space: nowrap; }
+
+  /* filter carousel */
+  #tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding-bottom: max(22px, env(safe-area-inset-bottom)); }
+  #ring { position: absolute; left: 50%; bottom: calc(max(22px, env(safe-area-inset-bottom)) - 9px); width: 96px; height: 96px; margin-left: -48px; border-radius: 50%; border: 6px solid #fff; pointer-events: none; box-shadow: 0 0 16px rgba(0,0,0,.25); }
+  #list { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 0 calc(50% - 39px); align-items: center; height: 78px; }
+  #list::-webkit-scrollbar { display: none; }
+  .f { flex: none; width: 64px; height: 64px; border-radius: 50%; scroll-snap-align: center; background: rgba(255,255,255,.25); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font-size: 34px; display: grid; place-items: center; transition: transform .2s, background .2s; }
+  .f.on { transform: scale(1.22); background: rgba(255,255,255,.4); }
+
+  /* photos */
+  #shutter { position: fixed; left: 50%; bottom: calc(max(22px, env(safe-area-inset-bottom)) + 100px); z-index: 5; width: 84px; height: 84px; margin-left: -42px; border-radius: 50%; background: #fff; border: 5px solid rgba(255,255,255,.55); background-clip: padding-box; box-shadow: 0 4px 16px rgba(0,0,0,.3); font-size: 38px; display: grid; place-items: center; transition: transform .1s; }
+  #shutter:active { transform: scale(.88); }
+  #flash { position: fixed; inset: 0; z-index: 25; background: #fff; opacity: 0; pointer-events: none; transition: opacity .4s; }
+  #photo { position: fixed; inset: 0; z-index: 30; background: #000; }
+  #photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; -webkit-touch-callout: default; }
+  #photoBack { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 16px; width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 26px; font-weight: 900; display: grid; place-items: center; }
+  #photoSave { position: absolute; left: 50%; bottom: max(28px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--yellow); color: #111; text-decoration: none; font-size: 24px; font-weight: 900; padding: 18px 36px; border-radius: 999px; box-shadow: 0 6px 0 rgba(0,0,0,.25); white-space: nowrap; }
+  #photoTip { position: absolute; left: 16px; right: 16px; bottom: calc(max(28px, env(safe-area-inset-bottom)) + 78px); text-align: center; font-size: 16px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,.7); pointer-events: none; }
+  #photo.holdOnly #photoSave { display: none; }
+  #photo.holdOnly #photoTip { bottom: max(36px, env(safe-area-inset-bottom)); font-size: 21px; }
+  #photoSave:active { transform: translate(-50%, 3px); box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+  /* Critters picker: a second row of round buttons at the top of the screen */
+  #critterTray { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 0; right: 76px; z-index: 6; display: flex; gap: 10px; overflow-x: auto; padding: 6px 12px; scrollbar-width: none; }
+  #critterTray::-webkit-scrollbar { display: none; }
+  .pk { flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; position: relative; border: 3px solid rgba(255,255,255,.85); box-shadow: 0 2px 8px rgba(0,0,0,.25); transition: transform .2s; }
+  .pk b { position: absolute; bottom: -3px; right: -3px; font-size: 10px; font-weight: 900; background: #fff; color: #111; border-radius: 999px; padding: 1px 4px; }
+  .pk.on { transform: scale(1.15); border-color: #FFFC00; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="base"></canvas>
+  <canvas id="gl"></canvas>
+  <canvas id="fx"></canvas>
+  <canvas id="hand"></canvas>
+</div>
+
+<section id="start">
+  <div class="faces">🐶🐱👑😎</div>
+  <h1>Silly Cam</h1>
+  <button id="startBtn">Tap to play 📷</button>
+  <div class="note" id="startNote">Silly face filters for everyone.<br>Photos stay on your device. Nothing is ever sent anywhere.</div>
+</section>
+
+<button id="flipBtn" class="hidden" aria-label="Flip camera">🔄</button>
+<div id="hint" style="opacity:0"></div>
+<div id="name" style="opacity:0"></div>
+<div id="tray"><div id="list"></div><div id="ring"></div></div>
+<div id="critterTray" class="hidden"></div>
+<button id="shutter" class="hidden" aria-label="Take a photo">📸</button>
+<div id="flash"></div>
+<section id="photo" class="hidden">
+  <img id="photoImg" alt="Your silly photo">
+  <button id="photoBack" aria-label="Back to the camera">✕</button>
+  <a id="photoSave" download target="_blank" rel="noopener">Save 💾</a>
+  <div id="photoTip" class="hidden">Or press and hold the photo to save it 👆</div>
+</section>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import { createStage3D, FILTERS_3D } from './filters3d.js';
+import { HALLOWEEN_3D, MORE_3D } from './filters-more.js';
+import { CREATURES } from './creatures.js';
+import { FACE_POSITIONS } from './facemesh.js';
+// ---------------------------------------------------------------------------
+// Everything runs on this device. The camera picture is never sent anywhere;
+// a photo is only kept if you tap Save, and then it goes onto this device.
+// ---------------------------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+let video = $('#video'); const base = $('#base'), fx = $('#fx'), gl = $('#gl');
+const bctx = base.getContext('2d', { alpha: false }), fctx = fx.getContext('2d');
+const small = document.createElement('canvas'), sctx = small.getContext('2d');
+const track = document.createElement('canvas'), tctx = track.getContext('2d');
+const handLayer = $('#hand'), hctx = handLayer.getContext('2d'); // your real hand, drawn on top of the filters
+
+let W = 0, H = 0, DPR = 1;
+let facing = 'user';
+let landmarker = null, faceStatus = 'loading';
+let faces = [], lastResult = null;
+let stage3d = null;
+let current = 0;
+let particles = [];
+let t0 = performance.now();
+
+// ---------- face tracking (MediaPipe, loaded in the background) ----------
+async function loadFaceTracker() {
+  try {
+    const V = '0.10.14';
+    const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}`);
+    const { FilesetResolver, ImageSegmenter } = vision;
+    const files = await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${V}/wasm`);
+    // Faces and hands are looked for in a background worker (tracker-worker.js), so tracking never
+    // holds up the camera picture. If workers don't work here, the same thing runs on this page instead.
+    landmarker = await startWorkerTracker(V, 'main').catch((e) => { console.warn('Tracking worker unavailable, tracking on the page', e); return startPageTracker(vision, files); });
+    // The group finder gets its own worker, so the main face tracker can keep up with every camera frame.
+    if (landmarker.worker) startWorkerTracker(V, 'finders').then((f) => (finderTracker = f)).catch((e) => console.warn('Group finder unavailable', e));
+    // Hands, so you can touch the filters (loads in the background), in a worker of their own, so looking for
+    // hands never holds up the picture. They can't share the face trackers' worker. If workers don't work
+    // here, hands are looked for on this page (GPU measured faster there: 8–19ms vs 20–36ms on CPU).
+    const handOpts = (d) => ({
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: d },
+      runningMode: 'VIDEO', numHands: 2,
+    });
+    startWorkerTracker(V, 'hands').then((h) => (handWorker = h)).catch((e) => {
+      console.warn('Hand worker unavailable, looking for hands on the page', e);
+      vision.HandLandmarker.createFromOptions(files, handOpts('GPU')).catch(() => vision.HandLandmarker.createFromOptions(files, handOpts('CPU')))
+        .then((h) => (handTracker = h)).catch((e2) => console.warn('Hand tracking unavailable', e2));
+    });
+    // Skin finder: tells hand/arm skin apart from face skin, pixel by pixel, so filters go exactly behind your hand.
+    const segOpts = (d) => ({
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite', delegate: d },
+      runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false,
+    });
+    ImageSegmenter.createFromOptions(files, segOpts('GPU')).catch(() => ImageSegmenter.createFromOptions(files, segOpts('CPU')))
+      .then((sg) => (skinFinder = sg)).catch((e) => console.warn('Hand outlines unavailable', e));
+    try { stage3d = await createStage3D(gl, { picture: base }); /* the camera picture, so 3D filters match the room's light */ stage3d.setFilter(FILTERS[current]); }
+    catch (e) { console.warn('3D unavailable', e); }
+    faceStatus = 'ready';
+  } catch (e) {
+    console.warn('Face tracking unavailable', e);
+    faceStatus = 'failed';
+  }
+}
+
+// ---------- geometry helpers ----------
+// Maps the video frame onto the screen like CSS object-fit: cover (mirrored for selfies).
+function frameFit() {
+  const vw = video.videoWidth || video.width || 1, vh = video.videoHeight || video.height || 1;
+  const s = Math.max(W / vw, H / vh);
+  return { vw, vh, s, ox: (W - vw * s) / 2, oy: (H - vh * s) / 2 };
+}
+function buildFace(lm) {
+  const { vw, vh, s, ox, oy } = frameFit();
+  const mirror = facing === 'user';
+  const P = (i) => {
+    let x = lm[i].x * vw; const y = lm[i].y * vh;
+    if (mirror) x = vw - x;
+    return { x: x * s + ox, y: y * s + oy };
+  };
+  let a = P(234), b = P(454);
+  if (mirror) [a, b] = [b, a];
+  const w = Math.hypot(b.x - a.x, b.y - a.y);
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+  const top = P(10), chin = P(152);
+  const h = Math.hypot(chin.x - top.x, chin.y - top.y);
+  const lip = Math.hypot(P(13).x - P(14).x, P(13).y - P(14).y);
+  return { P, w, h, angle, top, chin, nose: P(1), mouthOpen: lip / h > 0.07, lipTop: P(13), lipBottom: P(14), eyes: lm.length > 473 ? [P(468), P(473)] : [P(159), P(386)], eyeMid: mid(P(33), P(263)), cheeks: [P(205), P(425)] };
+}
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+// Point offset from an anchor along the face's own axes (x = right, y = down), in face widths.
+function along(f, anchor, dx, dy) {
+  const c = Math.cos(f.angle), s = Math.sin(f.angle);
+  return { x: anchor.x + (dx * c - dy * s) * f.w, y: anchor.y + (dx * s + dy * c) * f.w };
+}
+// Draw in a frame centred on `at`, rotated with the face, where 1 unit = face width.
+function local(ctx, f, at, draw) {
+  ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(f.angle); ctx.scale(f.w, f.w);
+  draw(ctx); ctx.restore();
+}
+function emoji(ctx, ch, at, size, angle = 0) {
+  ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(angle);
+  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(ch, 0, 0); ctx.restore();
+}
+function ellipse(ctx, x, y, rx, ry, rot, fill) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill();
+}
+
+// Magnify a circle of the picture (used for Big Eyes). Zooms straight from the camera so it stays sharp.
+function bulge(x, y, r, zoom) {
+  const { s, ox, oy } = frameFit(), sr = r / zoom;
+  bctx.save(); bctx.beginPath(); bctx.arc(x, y, r, 0, Math.PI * 2); bctx.clip();
+  if (facing === 'user') { bctx.translate(W, 0); bctx.scale(-1, 1); x = W - x; }
+  bctx.drawImage(video, (x - sr - ox) / s, (y - sr - oy) / s, sr * 2 / s, sr * 2 / s, x - r, y - r, r * 2, r * 2);
+  bctx.restore();
+}
+
+// Face tracking looks at a small copy of the frame, so a sharp 4K camera doesn't slow it down.
+function trackingFrame() {
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+  const k = Math.min(1, 640 / Math.max(vw, vh)); // plenty for finding faces, and fast
+  const w = Math.round(vw * k), h = Math.round(vh * k);
+  if (track.width !== w || track.height !== h) { track.width = w; track.height = h; }
+  tctx.drawImage(video, 0, 0, w, h);
+  return track;
+}
+
+// ---------- hands ----------
+// Hands let you touch the 3D filters. Looking for hands costs time, so: every 2nd frame while a
+// hand is in view, and only every 4th frame (still ~8 times a second) when there are none.
+let handTracker = null, lastHands = null, handsAt = 0, handFrame = 0, handTs = 0, handVideoTime = -1;
+let handWorker = null, handBusy = false, handSentAt = 0; // hands' own worker (handTracker is the on-page fallback)
+function runHands(now) {
+  if (!(handWorker || handTracker) || video.currentTime === handVideoTime) return; // only new camera frames
+  if (handBusy && now - handSentAt < 1000) return; // the worker is still looking (never wait forever on a lost answer)
+  handVideoTime = video.currentTime;
+  const seeing = lastHands?.landmarks?.length > 0;
+  if (handFrame++ % (handOnFace ? 1 : seeing ? 2 : 4)) return; // every frame while touching your face
+  handTs = Math.max(handTs + 1, now);
+  if (handWorker) {
+    handBusy = true; handSentAt = now;
+    createImageBitmap(trackingFrame()).then((b) => handWorker.post({ type: 'hands', ts: handTs, bitmap: b }, [b])).catch(() => { handBusy = false; });
+    return;
+  }
+  try { lastHands = handTracker.detectForVideo(trackingFrame(), handTs); handsAt = now; } catch { lastHands = null; }
+}
+function onHandResult(out) {
+  handBusy = false;
+  lastHands = out.result || null;
+  handsAt = out.ts; // when that camera frame was taken (not when the answer came back), so "how old are these hands" stays honest
+}
+
+// ---------- tracking worker ----------
+// The page sends the worker one small copy of a camera frame at a time and keeps drawing while it
+// works. A new frame is only sent once the last answer is back, so if tracking is slow it skips
+// frames (filters keep gliding on the last pose) instead of falling further and further behind.
+let trackerBusy = false, trackerSentAt = 0, trackCost = 0, lastMainCount = 0;
+let finderTracker = null, finderBusy = false, finderSentAt = 0, lastMain = null; // the group finder's own worker
+const trackerReady = { faces: false, finders: false };
+function startWorkerTracker(V, role) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker('tracker-worker.js');
+    const want = role === 'finders' || role === 'hands' ? role : 'faces';
+    const timer = setTimeout(() => { w.terminate(); reject(new Error('worker took too long')); }, 30000);
+    w.onerror = (e) => { clearTimeout(timer); w.terminate(); reject(e.error || new Error(e.message || 'worker error')); };
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'result') return role === 'finders' ? onFinderResult(m) : onTrackResult(m);
+      if (m.type === 'hands') return onHandResult(m);
+      if (m.type === 'failed') { clearTimeout(timer); w.terminate(); return reject(new Error(m.error)); }
+      if (m.type === 'ready') {
+        trackerReady[m.what] = true;
+        if (m.what === want) { clearTimeout(timer); resolve({ worker: true, post: (msg, transfer) => w.postMessage(msg, transfer) }); }
+      }
+    };
+    w.postMessage({ type: 'init', V, role });
+  });
+}
+// The same tracking, on the page itself (for browsers where the worker can't load MediaPipe).
+async function startPageTracker({ FaceLandmarker }, files) {
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate },
+    runningMode: 'VIDEO', numFaces: 5, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
+  });
+  let delegate = 'CPU', faceT;
+  const finderTs = [];
+  try { faceT = await FaceLandmarker.createFromOptions(files, opts('CPU')); }
+  catch { delegate = 'GPU'; faceT = await FaceLandmarker.createFromOptions(files, opts('GPU')); }
+  trackerReady.faces = true;
+  (async () => { try { for (let i = 0; i < 3; i++) finderTs.push(await FaceLandmarker.createFromOptions(files, opts(delegate))); trackerReady.finders = true; } catch (e) { console.warn('Group finder unavailable', e); } })();
+  return {
+    post(msg) {
+      const start = performance.now(), out = { type: 'result', ts: msg.ts };
+      try {
+        if (msg.track) out.main = faceT.detectForVideo(msg.track, msg.ts);
+        if (msg.slice) { try { out.slice = { i: msg.slice.i, result: finderTs[msg.slice.i].detectForVideo(msg.slice.bitmap, msg.ts) }; } catch { out.slice = { i: msg.slice.i, result: null }; } }
+      } catch { out.main = null; }
+      msg.track?.close?.(); msg.slice?.bitmap.close?.();
+      out.ms = performance.now() - start;
+      Promise.resolve().then(() => (msg.track ? onTrackResult(out) : onFinderResult(out)));
+    },
+  };
+}
+// Send the current camera frame (plus, now and then, one group-finder slice) to be tracked.
+function sendFrame(ts, F) {
+  const trackC = trackingFrame();
+  trackerBusy = true; trackerSentAt = performance.now();
+  createImageBitmap(trackC).then((tb) => landmarker.post({ type: 'frame', ts, track: tb }, [tb])).catch(() => { trackerBusy = false; });
+  // look for small faces too (groups), in the finder worker whenever it's free
+  if (finderBusy && performance.now() - finderSentAt > 2000) finderBusy = false;
+  const finder = finderTracker || (!landmarker.worker ? landmarker : null);
+  if (!finder || finderBusy || lastMainCount >= MAX_FACES) return;
+  const sl = pickSlice();
+  if (!sl) return;
+  finderBusy = true; finderSentAt = performance.now();
+  createImageBitmap(slice).then((sb) => finder.post({ type: 'frame', ts, slice: { i: sl.i, bitmap: sb } }, [sb])).catch(() => { finderBusy = false; });
+}
+function onFinderResult(out) {
+  finderBusy = false;
+  if (out.slice) recordSlice(out.slice.i, out.slice.result, lastMain || { faceLandmarks: [] }, out.ts);
+}
+const trackWaiters = []; // test hook: promises waiting for the next tracking answer
+const nextTrackResult = () => new Promise((r) => trackWaiters.push(r));
+function onTrackResult(out) {
+  trackerBusy = false;
+  queueMicrotask(() => trackWaiters.splice(0).forEach((r) => r(out))); // after this result is stored
+  trackCost = trackCost * 0.9 + out.ms * 0.1;
+  if (!out.main) { lastResult = null; faces = []; return; }
+  lastMain = out.main;
+  lastMainCount = out.main.faceLandmarks.length;
+  try {
+    lastResult = mergeFaces(out.main, out.ts);
+    lastResult.ts = out.ts; // when this camera frame was sent (performance.now clock); a new object = a new answer
+    faces = lastResult.faceLandmarks.filter(Boolean).map(buildFace);
+    if (faces.length) { faceSeenAt = performance.now(); heldFaces = { list: faces, at: faceSeenAt }; }
+    // A hand near your face can make the tracker lose it for a moment: keep the flat (2D) effects where
+    // your face was while a hand is around, like the 3D filters do, instead of making them vanish.
+    else if (heldFaces && performance.now() - handsAt < 1500 && performance.now() - heldFaces.at < 6000) faces = heldFaces.list;
+  } catch { lastResult = null; faces = []; }
+}
+let heldFaces = null;
+
+// Sparkles, hearts and blush on the flat effects layer shouldn't draw over your hand either.
+const HAND_LINES = [[0, 1, 2, 3, 4], [0, 5, 6, 7, 8], [5, 9, 10, 11, 12], [9, 13, 14, 15, 16], [13, 17, 18, 19, 20], [0, 17]];
+function eraseHands(res) {
+  const lms = res?.landmarks;
+  if (!lms?.length) return;
+  const { vw, vh, s, ox, oy } = frameFit();
+  const mirror = facing === 'user';
+  fctx.save();
+  fctx.globalCompositeOperation = 'destination-out';
+  fctx.lineCap = fctx.lineJoin = 'round';
+  for (const lm of lms) {
+    const P = lm.map((p) => [(mirror ? vw - p.x * vw : p.x * vw) * s + ox, p.y * vh * s + oy]);
+    const size = Math.hypot(P[0][0] - P[9][0], P[0][1] - P[9][1]);
+    fctx.lineWidth = size * 0.2; // about a finger wide, so nothing next to your hand gets erased
+    for (const line of HAND_LINES) { fctx.beginPath(); line.forEach((i, k) => (k ? fctx.lineTo : fctx.moveTo).call(fctx, P[i][0], P[i][1])); fctx.stroke(); }
+    fctx.beginPath(); [0, 1, 5, 9, 13, 17].forEach((i, k) => (k ? fctx.lineTo : fctx.moveTo).call(fctx, P[i][0], P[i][1])); fctx.fill();
+  }
+  fctx.restore();
+}
+
+// ---------- hand outlines ----------
+// When a hand is near a face, cut a square around the faces and hands out of the camera picture,
+// ask the skin finder which pixels are hand (not face), and keep that as a soft mask. Each frame the
+// real camera pixels under the mask are drawn on top of every filter, so filters sit exactly
+// behind your fingers, with no lag (the mask comes from the very frame being shown).
+const SEG = 256;
+const segIn = Object.assign(document.createElement('canvas'), { width: SEG, height: SEG }), segCtx = segIn.getContext('2d');
+const segMask = Object.assign(document.createElement('canvas'), { width: SEG, height: SEG }), maskCtx = segMask.getContext('2d');
+const segGate = Object.assign(document.createElement('canvas'), { width: SEG, height: SEG }), gateCtx = segGate.getContext('2d', { willReadFrequently: true });
+const segBones = Object.assign(document.createElement('canvas'), { width: SEG, height: SEG }), bonesCtx = segBones.getContext('2d', { willReadFrequently: true });
+const segCore = Object.assign(document.createElement('canvas'), { width: SEG, height: SEG }), coreCtx = segCore.getContext('2d', { willReadFrequently: true });
+const maskImg = maskCtx.createImageData(SEG, SEG);
+let maskTick = 0;
+let skinFinder = null, handMask = null, handOnFace = false, handSeenAt = -1e9, segTs = 0, heldHands = null;
+let handCover = [], coverAt = -1e9, lastFaces = null; // per face (same order as lastResult.faceLandmarks): is a hand over its mouth / eyes?
+function updateHandMask(ts, now) {
+  handOnFace = false;
+  if (!skinFinder) return;
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+  const hands = (now - handsAt < 300 && lastHands?.landmarks) || [];
+  // A hand over most of a face can make the face tracker lose it. Then keep using where the face
+  // last was (while a hand is there), so the filter stays put just behind your hand instead of vanishing.
+  let faceList = lastResult?.faceLandmarks || [];
+  if (faceList.some(Boolean)) lastFaces = { list: faceList, at: now };
+  else if (hands.length && lastFaces && now - lastFaces.at < 4000) faceList = lastFaces.list;
+  const faceLms = faceList.filter(Boolean);
+  if (!faceLms.length) { handMask = null; handCover = []; return; }
+
+  // Boxes (video pixels) around each face's filter area and each hand.
+  const box = (pts, padX, padTop, padBottom) => {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const p of pts) { x0 = Math.min(x0, p.x * vw); x1 = Math.max(x1, p.x * vw); y0 = Math.min(y0, p.y * vh); y1 = Math.max(y1, p.y * vh); }
+    const w = x1 - x0, h = y1 - y0;
+    return { x0: x0 - w * padX, x1: x1 + w * padX, y0: y0 - h * padTop, y1: y1 + h * padBottom, w, h };
+  };
+  const faceBoxes = faceLms.map((lm) => box(lm, 0.45, 0.7, 0.08)); // room for ears and hats, not the neck
+  const forearm = (lm) => ({ x: lm[0].x + (lm[0].x - lm[9].x) * 1.8, y: lm[0].y + (lm[0].y - lm[9].y) * 1.8 });
+  const handBoxes = hands.map((lm) => box([...lm, forearm(lm)], 0.2, 0.2, 0.2));
+  const overlaps = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  // A hand needs its exact outline whenever it could be over any part of a filter: around the face, well
+  // above and beside it (hats, horns, balloons, clouds), or anywhere while it's carrying a hat it grabbed.
+  // (Without an outline the app falls back to a rough hand shape, which looks like a hand-shaped hole.)
+  const filterBoxes = faceLms.map((lm) => box(lm, 0.9, 1.6, 0.08));
+  const carrying = !!stage3d?.holding?.();
+  let nearHands = hands.filter((_, i) => carrying || filterBoxes.some((fb) => overlaps(handBoxes[i], fb)));
+  // The tracker drops a hand on a face for a frame or two now and then; keep its last spot for a
+  // moment so the outline doesn't flicker off (that flicker is what looks like a glitch). A remembered
+  // spot only says where to look: the skin finder must still clearly see a hand there.
+  let held = false;
+  if (nearHands.length) heldHands = { lms: nearHands, at: now };
+  else if (heldHands && now - heldHands.at < 250 && !hands.length) { nearHands = heldHands.lms; held = true; }
+  const near = nearHands.map((lm) => box([...lm, forearm(lm)], 0.2, 0.2, 0.2));
+  if (near.length) handSeenAt = now;
+  // Which parts of each face a hand is over (from the hand's joints and the middles of its bones).
+  if (nearHands.length) {
+    const pts = []; for (const lm of nearHands) { pts.push(...lm); for (const line of HAND_LINES) for (let k = 1; k < line.length; k++) { const a = lm[line[k - 1]], c = lm[line[k]]; pts.push({ x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 }); } }
+    const over = (lm, ids, pad) => { const b = box(ids.map((i) => lm[i]), pad, pad, pad), w = Math.max(b.w, b.h) * pad;
+      return pts.some((p) => p.x * vw > b.x0 - w && p.x * vw < b.x1 + w && p.y * vh > b.y0 - w && p.y * vh < b.y1 + w); };
+    handCover = faceList.map((lm) => {
+      if (!lm) return null;
+      const mouth = over(lm, [13, 14, 61, 291], 0.4), eyes = over(lm, [33, 133, 159, 145], 0.4) || over(lm, [263, 362, 386, 374], 0.4);
+      return { mouth, eyes, any: overlaps(box(lm, 0, 0, 0), box(pts, 0, 0, 0)) };
+    });
+    coverAt = now;
+  } else if (now - coverAt > 500) handCover = [];
+  // The hand tracker often loses a hand once it's on a face, so for a moment after a hand was near a
+  // face, check the whole face for hand skin instead.
+  const faceGate = !near.length && now - handSeenAt < 700;
+  handOnFace = near.length > 0 || faceGate;
+  if (!handOnFace) { handMask = null; return; }
+  // The skin finder is the slowest part of the app while a hand is near (≈2/3 of the frame), so run it
+  // every other frame and keep showing the last outline (one frame old) in between.
+  if ((++maskTick & 1) && handMask && now - handMask.at < 90) return;
+
+  // One square around the faces and the hands touching them.
+  const all = [...faceBoxes, ...near];
+  let x0 = Math.min(...all.map((b) => b.x0)), x1 = Math.max(...all.map((b) => b.x1));
+  let y0 = Math.min(...all.map((b) => b.y0)), y1 = Math.max(...all.map((b) => b.y1));
+  const side = Math.min(Math.max(x1 - x0, y1 - y0, 64), Math.max(vw, vh));
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const roi = { x: Math.round(cx - side / 2), y: Math.round(cy - side / 2), w: Math.round(side), h: Math.round(side) };
+  const k = SEG / roi.w, toSeg = (p) => [(p.x * vw - roi.x) * k, (p.y * vh - roi.y) * k];
+
+  // Where a hand is allowed to be: around the hands we can see, or (if the tracker just lost the
+  // hand on your face) anywhere on the face. Everything else is never treated as hand.
+  // Near the finger bones, thin fingers lying on face skin look "unsure" to the skin finder, so there
+  // weaker evidence is enough; and a thin core along each bone (plus the palm) is always hand.
+  // gate = red, bones = green, core = blue, all in one canvas ('lighter' adds the channels together)
+  gateCtx.globalCompositeOperation = 'source-over'; gateCtx.clearRect(0, 0, SEG, SEG);
+  gateCtx.globalCompositeOperation = 'lighter'; gateCtx.lineCap = gateCtx.lineJoin = 'round';
+  const bonesCtx = gateCtx, coreCtx = gateCtx;
+  const paint = { [0]: '#f00', [1]: '#0f0', [2]: '#00f' };
+  for (const lm of nearHands) {
+    const P = lm.map(toSeg), size = Math.hypot(P[0][0] - P[9][0], P[0][1] - P[9][1]);
+    // Kept tight to the real hand, so pieces right next to your hand never get "eaten".
+    // Hand points from an older frame (hands are found in their own worker) may sit where your hand was a
+    // moment ago, so then don't force any pixels to "hand": only let the current frame's skin outline decide.
+    const stale = held || now - handsAt > 45;
+    for (const [c, width, ch] of stale ? [[gateCtx, 0.4, 0]] : [[gateCtx, 0.4, 0], [bonesCtx, 0.2, 1], [coreCtx, 0.08, 2]]) {
+      c.fillStyle = c.strokeStyle = paint[ch];
+      c.lineWidth = size * width;
+      for (const line of HAND_LINES) { c.beginPath(); line.forEach((i, j) => (j ? c.lineTo : c.moveTo).call(c, P[i][0], P[i][1])); c.stroke(); }
+      c.beginPath(); [0, 1, 5, 9, 13, 17].forEach((i, j) => (j ? c.lineTo : c.moveTo).call(c, P[i][0], P[i][1])); c.fill();
+    }
+    // the wrist and forearm carry on past the hand points, so let the skin finder look there too
+    gateCtx.lineWidth = size * 0.8; gateCtx.strokeStyle = paint[0];
+    gateCtx.beginPath(); gateCtx.moveTo(P[0][0], P[0][1]);
+    gateCtx.lineTo(P[0][0] + (P[0][0] - P[9][0]) * 1.8, P[0][1] + (P[0][1] - P[9][1]) * 1.8); gateCtx.stroke();
+  }
+  if (faceGate) for (const lm of faceLms) { // the face's own outline, so it never reaches the neck
+    gateCtx.fillStyle = paint[0];
+    gateCtx.beginPath();
+    FACE_OUTLINE.forEach((i, j) => { const [x, y] = toSeg(lm[i]); j ? gateCtx.lineTo(x, y) : gateCtx.moveTo(x, y); });
+    gateCtx.fill();
+  }
+  gateCtx.globalCompositeOperation = 'source-over';
+  const zones = gateCtx.getImageData(0, 0, SEG, SEG).data; // r = gate, g = bones, b = core
+
+  segCtx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, SEG, SEG);
+  segTs = Math.max(segTs + 1, ts);
+  try {
+    skinFinder.segmentForVideo(segIn, segTs, (res) => {
+      const m = res.confidenceMasks;
+      if (!m || m.length < 4) return;
+      const body = m[2].getAsFloat32Array(), face = m[3].getAsFloat32Array(), out = maskImg.data;
+      for (let i = 0, j = 3; i < body.length; i++, j += 4) {
+        // hand only where it's clearly body skin rather than face skin (no flicker on your face)
+        let a = (body[i] - face[i] - 0.1) / 0.35;
+        if (zones[j - 2]) a = Math.max(a, (body[i] - face[i] + 0.1) / 0.3); // on a finger bone: a bit less sure is enough
+        a = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a);
+        out[j] = Math.max(a * zones[j - 3], zones[j - 1]);
+      }
+      maskCtx.putImageData(maskImg, 0, 0);
+      handMask = { roi, at: now };
+    });
+  } catch { handMask = null; }
+}
+// On slow devices faces/hands are only looked for every other frame; the last outline is still far
+// better than none (dropping it for a frame is a visible flicker).
+const FACE_OUTLINE = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+const handMaskFresh = (now) => handMask && now - handMask.at < 250;
+function drawHandLayer(now, look) {
+  hctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  hctx.clearRect(0, 0, W, H);
+  if (!handMaskFresh(now)) return;
+  const { s, ox, oy } = frameFit(), r = handMask.roi;
+  hctx.save();
+  if (facing === 'user') { hctx.translate(W, 0); hctx.scale(-1, 1); }
+  hctx.imageSmoothingQuality = 'high';
+  hctx.drawImage(segMask, 0, 0, SEG, SEG, r.x * s + ox, r.y * s + oy, r.w * s, r.h * s);
+  hctx.globalCompositeOperation = 'source-in'; // camera pixels, only where the mask says "hand"
+  hctx.drawImage(video, r.x, r.y, r.w, r.h, r.x * s + ox, r.y * s + oy, r.w * s, r.h * s);
+  hctx.restore();
+  if (handLayer.style.filter !== look) handLayer.style.filter = look; // same colours as the camera picture
+}
+
+// ---------- tongue ----------
+// Sticking your tongue out (not just opening your mouth) makes filter tongues shoot out. The face
+// tracker has no tongue reading, so we look at the picture around each mouth:
+//  (a) the mouth outline is open but the jaw isn't (the tracker wraps its "lips" round a tongue lying
+//      over your lip), and what's inside isn't dark (an open mouth) or white (teeth); or
+//  (b) the strip of face a little below your lower lip turns tongue-pink (redder than your cheeks).
+//      Lips never reach that far down, so yawning or shouting doesn't count.
+const TONGUE_N = 88; // small: only a few thousand pixels to look at
+const tongueCan = Object.assign(document.createElement('canvas'), { width: TONGUE_N, height: TONGUE_N }), tongueCtx = tongueCan.getContext('2d', { willReadFrequently: true });
+const INNER_LIPS = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191];
+const LOWER_LIP = [91, 181, 84, 17, 314, 405, 321];
+let tongues = [], tongueState = [];
+function inPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function tongueOut(lm, cats, st, vw, vh) {
+  const V = (i) => [lm[i].x * vw, lm[i].y * vh];
+  const d = (a, b) => Math.hypot(V(a)[0] - V(b)[0], V(a)[1] - V(b)[1]);
+  const faceH = d(10, 152);
+  if (faceH < 40) return false; // too small to see a tongue
+  // a square crop around the mouth, cheeks and chin, shrunk to TONGUE_N pixels
+  const ids = [205, 425, 61, 291, 2, 152];
+  const xs = ids.map((i) => V(i)[0]), ys = ids.map((i) => V(i)[1]);
+  const side = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.15;
+  const x0 = (Math.min(...xs) + Math.max(...xs)) / 2 - side / 2, y0 = (Math.min(...ys) + Math.max(...ys)) / 2 - side / 2, k = TONGUE_N / side;
+  tongueCtx.drawImage(video, x0, y0, side, side, 0, 0, TONGUE_N, TONGUE_N);
+  const img = tongueCtx.getImageData(0, 0, TONGUE_N, TONGUE_N).data;
+  const C = (p) => [(p[0] - x0) * k, (p[1] - y0) * k];
+  const down = (() => { const a = V(1), b = V(152), l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / l, (b[1] - a[1]) / l]; })();
+  const strip = (a, b) => { const top = LOWER_LIP.map((i) => C([V(i)[0] + down[0] * faceH * a, V(i)[1] + down[1] * faceH * a]));
+    const bot = LOWER_LIP.slice().reverse().map((i) => C([V(i)[0] + down[0] * faceH * b, V(i)[1] + down[1] * faceH * b])); return [...top, ...bot]; };
+  const inner = INNER_LIPS.map((i) => C(V(i))), far = strip(0.11, 0.2);
+  const cheeks = [C(V(205)), C(V(425))], rad = faceH * 0.04 * k;
+  const px = (x, y) => (y * TONGUE_N + x) * 4;
+  const chroma = (i) => { const s = img[i] + img[i + 1] + img[i + 2] + 1; return [img[i] / s, img[i + 1] / s]; };
+  const sat = (i) => { const mx = Math.max(img[i], img[i + 1], img[i + 2]); return mx ? (mx - Math.min(img[i], img[i + 1], img[i + 2])) / mx : 0; };
+  const lum = (i) => (img[i] + img[i + 1] + img[i + 2]) / 3;
+  // skin: the two cheeks
+  let sn = 0, sr = 0, sg = 0, sl = 0, ss = 0;
+  for (const [cx, cy] of cheeks) for (let y = Math.max(0, cy - rad | 0); y < Math.min(TONGUE_N, cy + rad); y++) for (let x = Math.max(0, cx - rad | 0); x < Math.min(TONGUE_N, cx + rad); x++) {
+    if (Math.hypot(x - cx, y - cy) > rad) continue; const i = px(x, y), [r, g] = chroma(i); sr += r; sg += g; sl += lum(i); ss += sat(i); sn++;
+  }
+  if (!sn) return false;
+  sr /= sn; sg /= sn; sl /= sn; ss /= sn;
+  const colour = ss > 0.04; // a black-and-white picture has no colour to go on
+  let inN = 0, inL = 0, inS = 0, inR = 0, farN = 0, farPink = 0;
+  const bbox = (poly) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const [x, y] of poly) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    return [Math.max(0, x0 | 0), Math.max(0, y0 | 0), Math.min(TONGUE_N - 1, Math.ceil(x1)), Math.min(TONGUE_N - 1, Math.ceil(y1))]; };
+  { const [x0, y0, x1, y1] = bbox(inner); // only look inside each region's own box
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (inPoly(x + 0.5, y + 0.5, inner)) { const i = px(x, y); inN++; inL += lum(i); inS += sat(i); inR += chroma(i)[0]; } }
+  { const [x0, y0, x1, y1] = bbox(far);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (inPoly(x + 0.5, y + 0.5, far)) { const i = px(x, y); farN++; const [r, g] = chroma(i); if (r - sr > 0.035 && sg - g > 0.01) farPink++; } }
+  const gap = d(13, 14) / faceH, jaw = cats?.find((c) => c.categoryName === 'jawOpen')?.score ?? 0;
+  const pink = farN ? farPink / farN : 0;
+  if (gap < 0.04) st.base = st.base == null ? pink : st.base * 0.95 + pink * 0.05; // your own chin, mouth closed
+  // (a) a tongue lying over your lip
+  const a = inN > 4 && gap > 0.06 && gap / Math.max(0.05, jaw) > 0.85 && inL / inN / sl > 0.4 &&
+    (!colour || (inS / inN / ss > 0.7 && inR / inN - sr > -0.02));
+  // (b) a tongue reaching down past your lower lip
+  const b = colour && pink - (st.base ?? 0) > 0.15;
+  return a || b;
+}
+function updateTongues(now) {
+  const list = lastResult?.faceLandmarks || [], shapes = lastResult?.faceBlendshapes || [];
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+  tongues = list.map((lm, i) => {
+    if (!lm) { tongueState[i] = null; return 0; }
+    const st = tongueState[i] ||= { on: 0, hits: 0, n: 0 };
+    if (handCover[i]?.mouth) return st.on; // a hand over your mouth can look pink: keep what we had
+    if (st.n++ & 1) return st.on; // every other frame is plenty (two looks in a row still decide)
+    const seen = tongueOut(lm, shapes[i]?.categories, st, vw, vh);
+    st.hits = seen ? Math.min(3, st.hits + 1) : Math.max(0, st.hits - 1);
+    if (st.hits >= 2) st.on = 1; else if (st.hits === 0) st.on = 0; // two frames in a row to start, so it doesn't flicker
+    return st.on;
+  });
+}
+
+// ---------- group finder ----------
+// MediaPipe only *finds* faces that fill about 15% of a wide picture, which misses people in a
+// group shot. So we also search square slices of the picture (where faces look about twice as
+// big), one slice per frame, and merge what they see with the main tracker. Up to 5 people.
+const MAX_FACES = 5, SLICE = 384;
+let finderTurn = 0;
+const finderHits = [], sliceSent = [];
+const slice = document.createElement('canvas'); slice.width = slice.height = SLICE;
+const slctx = slice.getContext('2d');
+function sliceRects(vw, vh) {
+  const side = Math.min(vw, vh), long = Math.max(vw, vh);
+  if (long / side < 1.25) return []; // square-ish picture: faces already look big enough
+  const step = (long - side) / 2;
+  return [0, 1, 2].map((i) => (vw >= vh ? { x: i * step, y: 0, side } : { x: 0, y: i * step, side }));
+}
+// Slices are costly, so each one only takes a quick look a few times a second. A slice that
+// spots someone the main tracker can't see checks more often (10x a second) to follow them.
+const sliceDue = [0, 4, 8];
+let finderFrame = 0;
+function pickSlice() {
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+  const rects = sliceRects(vw, vh);
+  finderFrame++;
+  if (rects.length !== 3 || !trackerReady.finders) return null;
+  let i = -1;
+  for (let k = 0; k < 3; k++) { const j = (finderTurn + k) % 3; if (sliceDue[j] <= finderFrame) { i = j; break; } }
+  if (i < 0) return null; // nobody due: no extra work this frame
+  finderTurn = i + 1;
+  const r = rects[i];
+  slctx.drawImage(video, r.x, r.y, r.side, r.side, 0, 0, SLICE, SLICE);
+  sliceSent[i] = { r, vw, vh };
+  return { i };
+}
+function recordSlice(i, result, main, ts) {
+  const sent = sliceSent[i];
+  if (!result || !sent) { finderHits[i] = null; sliceDue[i] = finderFrame + 12; return; }
+  const { r, vw, vh } = sent;
+  finderHits[i] = { result, r, vw, vh, ts };
+  // Did this slice find anyone new (a face the main tracker doesn't already have)?
+  const known = main.faceLandmarks.map((lm) => [lm[1].x * vw, lm[1].y * vh]);
+  const fresh = result.faceLandmarks.some((lm) => {
+    const x = r.x + lm[1].x * r.side, y = r.y + lm[1].y * r.side, w = Math.abs(lm[234].x - lm[454].x) * r.side;
+    return !known.some(([kx, ky]) => Math.hypot(kx - x, ky - y) < w);
+  });
+  sliceDue[i] = finderFrame + (fresh ? 3 : 12);
+}
+
+// 4x4 column-major helpers, for moving a slice's 3D head pose into the full picture's camera.
+const mul4 = (a, b) => { const o = new Array(16).fill(0); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]; return o; };
+const rotY = (a) => [Math.cos(a), 0, -Math.sin(a), 0, 0, 1, 0, 0, Math.sin(a), 0, Math.cos(a), 0, 0, 0, 0, 1];
+const rotX = (a) => [1, 0, 0, 0, 0, Math.cos(a), Math.sin(a), 0, 0, -Math.sin(a), Math.cos(a), 0, 0, 0, 0, 1];
+// A slice is the same camera with its centre shifted. So: move the face sideways by that shift
+// (scaled by its depth), then turn it by how much the viewing angle changes, so it still faces right.
+function sliceToFull(m, r, vw, vh) {
+  const f = (vh / 2) / Math.tan((63 / 2) * Math.PI / 180); // MediaPipe assumes a 63° vertical view
+  const k = vh / r.side; // a shorter slice means a "wider-angle" guess: rescale depth to match
+  const X = m[12] * k, Y = m[13] * k, Z = -m[14] * k; // Z = distance in front of the camera
+  const dx = r.x + r.side / 2 - vw / 2, dy = r.y + r.side / 2 - vh / 2; // slice centre offset, px (y down)
+  const u = f * X / Z, v = f * Y / Z; // where the face sits in the slice, px from its centre (y up)
+  const turnY = -(Math.atan((u + dx) / f) - Math.atan(u / f));
+  const turnX = Math.atan((v - dy) / f) - Math.atan(v / f);
+  const rot = Array.from(m); rot[12] = rot[13] = rot[14] = 0;
+  const o = mul4(mul4(rotX(turnX), rotY(turnY)), rot);
+  o[12] = X + dx * Z / f; o[13] = Y - dy * Z / f; o[14] = -Z;
+  return o;
+}
+
+// Where your head is and which way it's turned. MediaPipe's own head pose isn't good enough: its turn
+// flips about (on a still photo it jumped between +22° and -17°), and it thinks heads lean back about
+// 15° more than they do, so frog eyes landed on foreheads and hats sank into them.
+// So: start from a rough guess made from the face points (across the face and up it), then nudge the
+// 3D face model until its points land exactly on the face points the tracker found in the picture.
+// That's what makes filters sit on the right spot: eyes on eyes, hats on top of the head.
+const v3 = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], scale: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  norm: (a) => v3.scale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1)),
+};
+const FACE_PAIRS = [[234, 454], [127, 356], [33, 263], [93, 323]]; // left/right points that don't move when you talk
+// Face points that stay put when you talk, blink or raise your eyebrows: forehead, nose, cheekbones, eye corners, temples.
+const RIGID = [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 109, 67, 103, 54, 21, 162, 127, 234, 93, 338, 297, 332, 284, 251,
+  389, 356, 454, 323, 33, 133, 362, 263, 116, 123, 50, 345, 352, 280, 98, 327, 117, 346, 143, 372];
+const RIGID_MODEL = RIGID.map((i) => [FACE_POSITIONS[i * 3], FACE_POSITIONS[i * 3 + 1], FACE_POSITIONS[i * 3 + 2]]);
+const POSE_F = 0.5 / Math.tan((63 / 2) * Math.PI / 180); // the 3D camera's focal length, in picture heights
+function rotate(axes, w) { // turn three axes by a small rotation vector w
+  const th = Math.hypot(w[0], w[1], w[2]);
+  if (th < 1e-12) return axes;
+  const k = v3.scale(w, 1 / th), c = Math.cos(th), s = Math.sin(th);
+  return axes.map((p) => v3.add(v3.add(v3.scale(p, c), v3.scale(v3.cross(k, p), s)), v3.scale(k, v3.dot(k, p) * (1 - c))));
+}
+function steadyPose(m, lm, vw, vh) {
+  const size = Math.hypot(m[0], m[1], m[2]);
+  // 1. Rough guess: across and up the face, aimed along the line from the camera to your face.
+  const P = (i) => [lm[i].x * vw, -lm[i].y * vh, -lm[i].z * vw]; // pixels: x right, y up, z towards the camera
+  let x = [0, 0, 0];
+  for (const [l, r] of FACE_PAIRS) x = v3.add(x, v3.sub(P(r), P(l)));
+  x = v3.norm(x);
+  const up = v3.add(v3.sub(P(10), P(152)), v3.sub(P(168), P(2)));
+  const y = v3.norm(v3.sub(up, v3.scale(x, v3.dot(up, x))));
+  let axes = [x, y, v3.cross(x, y)];
+  const toCam = v3.norm([-m[12], -m[13], -m[14]]);
+  const along = v3.cross([0, 0, 1], toCam), alongLen = Math.hypot(...along);
+  if (alongLen > 1e-6) axes = rotate(axes, v3.scale(along, Math.asin(Math.min(1, alongLen)) / alongLen));
+  let T = [m[12], m[13], m[14]];
+  // 2. Nudge it (a few Gauss-Newton steps) so the model's face points land on the real ones in the picture.
+  const f = POSE_F * vh, obs = RIGID.map((i) => [(lm[i].x - 0.5) * vw, (0.5 - lm[i].y) * vh]);
+  const misfit = (axes, T) => {
+    let e = 0;
+    RIGID_MODEL.forEach((q, n) => {
+      const p = v3.add(v3.add(v3.add(v3.scale(axes[0], q[0] * size), v3.scale(axes[1], q[1] * size)), v3.scale(axes[2], q[2] * size)), T);
+      e += (f * p[0] / -p[2] - obs[n][0]) ** 2 + (f * p[1] / -p[2] - obs[n][1]) ** 2;
+    });
+    return e;
+  };
+  const start = { axes, T, e: misfit(axes, T) };
+  for (let it = 0; it < 4; it++) {
+    const A = Array.from({ length: 6 }, () => new Array(6).fill(0)), b = new Array(6).fill(0);
+    RIGID_MODEL.forEach((q, n) => {
+      const r = v3.add(v3.add(v3.scale(axes[0], q[0] * size), v3.scale(axes[1], q[1] * size)), v3.scale(axes[2], q[2] * size));
+      const p = v3.add(r, T), Z = -p[2];
+      if (Z < 1) return;
+      const du = [f / Z, 0, f * p[0] / (Z * Z)], dv = [0, f / Z, f * p[1] / (Z * Z)]; // how u, v change with p
+      // p changes with a small turn w as w × r, and with a move as the move itself
+      const Ju = [...v3.cross(r, du), ...du], Jv = [...v3.cross(r, dv), ...dv];
+      const eu = f * p[0] / Z - obs[n][0], ev = f * p[1] / Z - obs[n][1];
+      for (let i = 0; i < 6; i++) {
+        b[i] -= Ju[i] * eu + Jv[i] * ev;
+        for (let j = 0; j < 6; j++) A[i][j] += Ju[i] * Ju[j] + Jv[i] * Jv[j];
+      }
+    });
+    for (let i = 0; i < 6; i++) A[i][i] *= 1.001; // a touch of damping keeps each step sensible
+    const d = solve6(A, b);
+    if (!d) break;
+    axes = rotate(axes, [d[0], d[1], d[2]]); T = v3.add(T, [d[3], d[4], d[5]]);
+  }
+  const done = misfit(axes, T) <= start.e && axes.flat().every(Number.isFinite) && T.every(Number.isFinite) ? { axes, T } : start;
+  const [ax, ay, az] = done.axes;
+  return [...v3.scale(ax, size), 0, ...v3.scale(ay, size), 0, ...v3.scale(az, size), 0, ...done.T, 1];
+}
+function solve6(A, b) { // Gaussian elimination for the 6x6 step
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < 6; c++) {
+    let piv = c;
+    for (let r = c + 1; r < 6; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) < 1e-12) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = 0; r < 6; r++) {
+      if (r === c) continue;
+      const k = M[r][c] / M[c][c];
+      for (let j = c; j < 7; j++) M[r][j] -= k * M[c][j];
+    }
+  }
+  return M.map((row, i) => row[6] / row[i]);
+}
+
+// Each person keeps the same slot, so their ears don't jump to someone else.
+const slots = Array.from({ length: MAX_FACES }, () => null);
+function mergeFaces(main, ts) {
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+  const found = main.faceLandmarks.map((lm, i) => ({ lm, mat: main.facialTransformationMatrixes?.[i], shapes: main.faceBlendshapes?.[i] }));
+  for (const hit of finderHits) {
+    if (!hit || ts - hit.ts > 250 || hit.vw !== vw || hit.vh !== vh) continue;
+    const { result, r } = hit;
+    result.faceLandmarks.forEach((lm, i) => {
+      const full = lm.map((p) => ({ x: (r.x + p.x * r.side) / vw, y: (r.y + p.y * r.side) / vh, z: p.z * r.side / vw }));
+      const m = result.facialTransformationMatrixes?.[i];
+      found.push({ lm: full, mat: m && { data: sliceToFull(m.data, r, vw, vh) }, shapes: result.faceBlendshapes?.[i] });
+    });
+  }
+  // Drop doubles (the same face seen by the main tracker and a slice, or by two slices).
+  const kept = [];
+  for (const f of found) {
+    f.cx = f.lm[1].x * vw; f.cy = f.lm[1].y * vh;
+    f.w = Math.hypot((f.lm[234].x - f.lm[454].x) * vw, (f.lm[234].y - f.lm[454].y) * vh);
+    if (!kept.some((k) => Math.hypot(k.cx - f.cx, k.cy - f.cy) < 0.5 * Math.max(k.w, f.w))) kept.push(f);
+    if (kept.length === MAX_FACES) break;
+  }
+  // Give each face the slot whose last position is closest; new faces take a free (or stale) slot.
+  const out = { faceLandmarks: [], facialTransformationMatrixes: [], faceBlendshapes: [] };
+  const taken = new Set();
+  const place = (f, i) => {
+    taken.add(i); slots[i] = { cx: f.cx, cy: f.cy, ts };
+    out.faceLandmarks[i] = f.lm; out.facialTransformationMatrixes[i] = f.mat && { data: steadyPose(f.mat.data, f.lm, vw, vh) }; out.faceBlendshapes[i] = f.shapes;
+  };
+  const pending = [];
+  for (const f of kept) {
+    let best = -1, bestD = f.w * 1.2;
+    slots.forEach((sl, i) => { if (sl && !taken.has(i) && ts - sl.ts < 500) { const d = Math.hypot(sl.cx - f.cx, sl.cy - f.cy); if (d < bestD) { bestD = d; best = i; } } });
+    if (best >= 0) place(f, best); else pending.push(f);
+  }
+  for (const f of pending) {
+    const free = slots.findIndex((sl, i) => !taken.has(i) && (!sl || ts - sl.ts >= 500));
+    const any = free >= 0 ? free : slots.findIndex((_, i) => !taken.has(i));
+    if (any >= 0) place(f, any);
+  }
+  return out;
+}
+
+// ---------- particles ----------
+function spawn(kind, f) {
+  if (kind === 'heart' && Math.random() < 0.18) {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const p = along(f, f.top, side * (0.4 + Math.random() * 0.3), 0.2 + Math.random() * 0.4);
+    particles.push({ kind, ch: ['💖', '💕', '❤️', '💗'][Math.random() * 4 | 0], x: p.x, y: p.y, vx: side * 0.3, vy: -1.6 - Math.random(), life: 1, size: f.w * (0.12 + Math.random() * 0.08) });
+  }
+  if (kind === 'sparkle' && Math.random() < 0.25) {
+    const p = along(f, f.top, (Math.random() - 0.5) * 1.3, -0.2 - Math.random() * 0.3);
+    particles.push({ kind, ch: Math.random() < 0.5 ? '✨' : '⭐', x: p.x, y: p.y, vx: 0, vy: -0.3, life: 1, size: f.w * (0.08 + Math.random() * 0.08) });
+  }
+}
+function confetti() {
+  if (Math.random() < 0.6) {
+    particles.push({ kind: 'confetti', x: Math.random() * W, y: -10, vx: (Math.random() - 0.5) * 1.5, vy: 2 + Math.random() * 2.5, life: 1, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, color: ['#ff4d6d', '#ffd43b', '#51cf66', '#4dabf7', '#cc5de8'][Math.random() * 5 | 0], size: 6 + Math.random() * 6 });
+  }
+}
+function drawParticles(dt) {
+  const k = dt / 16.7;
+  particles = particles.filter((p) => {
+    p.x += p.vx * k; p.y += p.vy * k;
+    if (p.kind === 'confetti') {
+      p.rot += p.vr * k;
+      fctx.save(); fctx.translate(p.x, p.y); fctx.rotate(p.rot); fctx.fillStyle = p.color; fctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); fctx.restore();
+      return p.y < H + 20;
+    }
+    if (p.kind === 'snow') { emoji(fctx, p.ch, p, p.size); return p.y < H + 30; }
+    p.life -= 0.012 * k;
+    fctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.5));
+    emoji(fctx, p.ch, p, p.size);
+    fctx.globalAlpha = 1;
+    return p.life > 0;
+  });
+}
+
+// Film grain for Old Movie: a few tiles of heavy light and dark specks, made once and reused.
+const filmGrain = Array.from({ length: 6 }, () => {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), img = g.createImageData(256, 256), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() + Math.random() + Math.random()) / 1.5 - 1; // roughly bell-shaped, -1..1
+    d[i] = d[i + 1] = d[i + 2] = n > 0 ? 255 : 0;
+    d[i + 3] = Math.min(255, Math.abs(n) * 300);
+  }
+  g.putImageData(img, 0, 0);
+  return fctx.createPattern(c, 'repeat');
+});
+const scratches = []; // long scratches that stay a moment and wobble, like on a worn film reel
+
+// ---------- the filters ----------
+// look:  CSS filter applied to the camera picture (string or function of time)
+// pre:   effects that change the picture itself (pixelate, mirror, big eyes)
+// face:  stickers drawn on every face that's found
+// scene: whole-screen extras
+// One "Critters" button in the tray; it opens a second row (at the top) with all our made-up creatures to pick from.
+let critterPick = 0;
+const CRITTERS = {
+  icon: '🐾', name: 'Critters', critters: true,
+  build: (g, kit) => CREATURES[critterPick].build(g, kit),
+  get look() { return CREATURES[critterPick].look; },
+  get sparkle() { return CREATURES[critterPick].sparkle; },
+  get snow() { return CREATURES[critterPick].snow; },
+};
+const FILTERS = [
+  { icon: '🙂', name: 'Normal' },
+  CRITTERS,
+  ...HALLOWEEN_3D, // spooky season first 🎃
+  { icon: '🕸️', name: 'Cobwebs', look: 'brightness(.85) contrast(1.12) saturate(.85)', scene(t) {
+      blit(layer('webs', drawWebs));
+      const sx = W * 0.8, sy = H * 0.26 + Math.sin(t * 1.4) * 24; // a spider hanging on its thread
+      fctx.strokeStyle = 'rgba(235,240,245,.6)'; fctx.lineWidth = 0.7;
+      fctx.beginPath(); fctx.moveTo(sx, 0); fctx.lineTo(sx, sy); fctx.stroke();
+      drawSpider(sx, sy + 10, Math.min(W, H) / 380, t);
+      const g = fctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(20,0,30,0)'); g.addColorStop(1, 'rgba(20,0,30,.6)');
+      fctx.fillStyle = g; fctx.fillRect(0, 0, W, H);
+    } },
+  ...FILTERS_3D,
+  ...MORE_3D,
+  { icon: '👀', name: 'Big Eyes', pre(f) {
+      for (const e of f.eyes) bulge(e.x, e.y, f.w * 0.2, 1.9);
+    } },
+  { icon: '🌈', name: 'Rainbow', look: 'saturate(1.12) brightness(1.04)', scene(t) {
+      // sunlight from the top corner, and a real rainbow arching across the sky behind you
+      const sun = fctx.createRadialGradient(W * 0.92, 0, 0, W * 0.92, 0, Math.max(W, H) * 0.6);
+      sun.addColorStop(0, 'rgba(255,248,225,.35)'); sun.addColorStop(1, 'rgba(255,248,225,0)');
+      fctx.fillStyle = sun; fctx.fillRect(0, 0, W, H);
+      fctx.globalAlpha = 0.85;
+      blit(layer('rainbow', drawRainbow));
+      fctx.globalAlpha = 1;
+    } },
+  { icon: '🎞️', name: 'Old Movie',
+    // the whole picture flickers brighter and darker every frame
+    look: () => `grayscale(1) sepia(.4) contrast(1.3) brightness(${(0.8 + Math.random() * 0.3 + (Math.random() < 0.06 ? 0.25 : 0)).toFixed(2)})`,
+    scene() {
+      const rnd = Math.random;
+      // heavy film grain: two layers (big clumps + fine fizz), fresh every frame
+      for (const [size, alpha] of [[2.4, 0.5], [1.2, 0.4]]) {
+        const grain = filmGrain[Math.floor(rnd() * filmGrain.length)];
+        grain.setTransform(new DOMMatrix([size, 0, 0, size, rnd() * 512, rnd() * 512]));
+        fctx.globalAlpha = alpha; fctx.fillStyle = grain; fctx.fillRect(0, 0, W, H);
+      }
+      fctx.globalAlpha = 1;
+      // flicker: a dark or light flash over everything
+      const flick = rnd();
+      if (flick < 0.35) { fctx.fillStyle = `rgba(0,0,0,${0.08 + rnd() * 0.2})`; fctx.fillRect(0, 0, W, H); }
+      else if (flick > 0.8) { fctx.fillStyle = `rgba(255,245,225,${0.05 + rnd() * 0.12})`; fctx.fillRect(0, 0, W, H); }
+      // lots of dust: tiny specks and bigger blobs, light and dark
+      for (let i = 0; i < 120; i++) {
+        fctx.fillStyle = rnd() < 0.5 ? `rgba(255,255,255,${0.3 + rnd() * 0.5})` : `rgba(0,0,0,${0.35 + rnd() * 0.5})`;
+        const r = i < 100 ? 0.6 + rnd() * 2 : 2 + rnd() * 5;
+        fctx.beginPath(); fctx.ellipse(rnd() * W, rnd() * H, r, r * (0.5 + rnd() * 0.6), rnd() * 3, 0, Math.PI * 2); fctx.fill();
+      }
+      // scratches: some stick around and wobble, others flash for one frame
+      if (scratches.length < 6 && rnd() < 0.25) scratches.push({ x: rnd() * W, life: 10 + rnd() * 40, w: 1 + rnd() * 2, dark: rnd() < 0.35, y0: rnd() < 0.5 ? 0 : rnd() * H * 0.6 });
+      for (let i = scratches.length - 1; i >= 0; i--) {
+        const sc = scratches[i];
+        sc.x += (rnd() - 0.5) * 3;
+        fctx.fillStyle = sc.dark ? `rgba(0,0,0,${0.4 + rnd() * 0.3})` : `rgba(255,255,255,${0.35 + rnd() * 0.4})`;
+        if (rnd() < 0.9) fctx.fillRect(sc.x, sc.y0, sc.w, H - sc.y0);
+        if (--sc.life <= 0) scratches.splice(i, 1);
+      }
+      for (let i = 0; i < 4; i++) if (rnd() < 0.5) {
+        fctx.fillStyle = `rgba(255,255,255,${0.2 + rnd() * 0.4})`;
+        fctx.fillRect(rnd() * W, 0, 0.6 + rnd() * 1.5, H);
+      }
+      // hairs and fibres stuck on the lens
+      for (let i = 0; i < 2; i++) if (rnd() < 0.15) {
+        const x = rnd() * W, y = rnd() * H, k = 20 + rnd() * 40;
+        fctx.strokeStyle = `rgba(0,0,0,${0.4 + rnd() * 0.3})`; fctx.lineWidth = 1 + rnd();
+        fctx.beginPath(); fctx.moveTo(x, y); fctx.bezierCurveTo(x + k, y - k, x - k * 0.7, y + k, x + k, y + k * 1.5); fctx.stroke();
+      }
+      // dark, flickery edges
+      const g = fctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${0.75 + rnd() * 0.15})`);
+      fctx.fillStyle = g; fctx.fillRect(0, 0, W, H);
+    } },
+  { icon: '👾', name: 'Pixel', look: 'saturate(1.5)', pixel: true, scene() {
+      blit(layer('lcd', drawLcdGrid)); // the little gaps between pixels on a real retro screen
+    } },
+  { icon: '🪞', name: 'Mirror', mirror: true },
+  { icon: '🧊', name: 'Frozen', look: 'saturate(.78) brightness(1.06) contrast(1.06)', scene(t) {
+      fctx.fillStyle = 'rgba(120,170,255,.1)'; fctx.fillRect(0, 0, W, H); // cold blue light
+      blit(layer('frost', drawFrost)); // ice crystals growing in from the edges
+      snowfall(t);
+    } },
+  { icon: '🌙', name: 'Night Vision', look: 'grayscale(1) sepia(1) hue-rotate(50deg) saturate(2.6) brightness(1.35) contrast(1.25)', scene(t) {
+      const glow = fctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.min(W, H) * 0.6);
+      glow.addColorStop(0, 'rgba(150,255,150,.08)'); glow.addColorStop(1, 'rgba(150,255,150,0)');
+      fctx.fillStyle = glow; fctx.fillRect(0, 0, W, H);
+      blit(layer('eyepiece', drawEyepiece));
+    } },
+  { icon: '🖍️', name: 'Comic', look: 'contrast(1.6) saturate(1.9) brightness(1.08)', scene() {
+      comicPrint(); // halftone dots in the shadows and inked outlines, like a printed comic
+    } },
+  { icon: '🎨', name: 'Pop Art', scene() {
+      popArt(); // the picture four times as flat screen-printed inks, like the famous gallery prints
+    } },
+  { icon: '📺', name: 'Old TV', look: 'contrast(1.2) saturate(1.3) brightness(1.05)', scene(t) {
+      fctx.fillStyle = overlayPattern('grille'); fctx.fillRect(0, 0, W, H); // red/green/blue phosphor stripes
+      fctx.fillStyle = overlayPattern('scan'); fctx.fillRect(0, 0, W, H);
+      const y = ((t * 0.25) % 1) * (H + 200) - 100, g = fctx.createLinearGradient(0, y - 100, 0, y + 100);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,.06)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      fctx.fillStyle = g; fctx.fillRect(0, y - 100, W, 200);
+      blit(layer('crt', drawCrt)); // rounded glass screen, dark corners and a soft reflection
+    } },
+  { icon: '🌌', name: 'Galaxy', look: 'saturate(1.15) contrast(1.12) brightness(.92)', scene(t) {
+      const space = fctx.createRadialGradient(W / 2, H * 0.42, Math.min(W, H) * 0.3, W / 2, H * 0.42, Math.max(W, H) * 0.75);
+      space.addColorStop(0, 'rgba(4,0,18,.15)'); space.addColorStop(1, 'rgba(4,0,18,.8)'); // deep space all around you
+      fctx.fillStyle = space; fctx.fillRect(0, 0, W, H);
+      const drift = Math.max(W, H) * 0.04;
+      fctx.save();
+      fctx.translate(W / 2 + Math.sin(t * 0.05) * drift, H / 2 + Math.cos(t * 0.04) * drift);
+      fctx.scale(1.12, 1.12); fctx.rotate(t * 0.004);
+      fctx.drawImage(layer('nebula', drawNebula), -W / 2, -H / 2, W, H);
+      fctx.restore();
+      blit(layer('stars', drawStars));
+      for (const s of brightStars) { // the brightest stars twinkle
+        fctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * s.speed * 0.4 + s.phase); // a slow, gentle twinkle
+        starburst(fctx, s.x * W, s.y * H, s.r, s.color);
+      }
+      fctx.globalAlpha = 1;
+    } },
+];
+// Twinkling stars for Galaxy, and small repeating overlays (scanlines, comic dots), made once.
+const galaxyStars = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random(), r: 0.6 + Math.random() * 1.8, speed: 1 + Math.random() * 3, phase: Math.random() * 6 }));
+const overlays = {};
+function overlayPattern(kind) {
+  if (overlays[kind]) return overlays[kind];
+  const c = document.createElement('canvas'), x = c.getContext('2d');
+  if (kind === 'lines') { c.width = 4; c.height = 4; x.fillStyle = 'rgba(0,0,0,.28)'; x.fillRect(0, 0, 4, 2); }
+  else if (kind === 'grille') { c.width = 3; c.height = 1; ['rgba(255,0,0,.09)', 'rgba(0,255,0,.09)', 'rgba(0,80,255,.09)'].forEach((col, i) => { x.fillStyle = col; x.fillRect(i, 0, 1, 1); }); }
+  else if (kind === 'scan') { c.width = 1; c.height = 3; x.fillStyle = 'rgba(0,0,0,.2)'; x.fillRect(0, 2, 1, 1); }
+  else { c.width = c.height = 10; x.fillStyle = 'rgba(255,255,255,.14)'; x.beginPath(); x.arc(5, 5, 2.2, 0, Math.PI * 2); x.fill(); }
+  return (overlays[kind] = fctx.createPattern(c, 'repeat'));
+}
+// ---------- realistic effect layers ----------
+// Big effect pictures (webs, frost, rainbow, space) are drawn once per screen size and reused every frame.
+const layers = {};
+function layer(kind, draw) {
+  const key = `${W}x${H}@${DPR}`;
+  if (layers[kind]?.key !== key) {
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * DPR); c.height = Math.round(H * DPR);
+    const x = c.getContext('2d'); x.scale(DPR, DPR);
+    draw(x, W, H, seeded(kind.length * 7919));
+    layers[kind] = { key, c };
+  }
+  return layers[kind].c;
+}
+const blit = (c) => fctx.drawImage(c, 0, 0, W, H);
+// the same "random" numbers every time, so a web or frost pattern doesn't jump around when redrawn
+function seeded(a) {
+  return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// Cobwebs: fine silk threads that sag between the spokes, with dew drops catching the light.
+function drawWebs(x, W, H, R) {
+  const silk = (path, w) => { x.lineCap = 'round'; x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = w * 3; path(); x.stroke(); x.strokeStyle = 'rgba(236,241,246,.62)'; x.lineWidth = w; path(); x.stroke(); };
+  const drops = [];
+  for (const [cx, cy, a0, size] of [[0, 0, 0, 0.48], [W, 0, Math.PI / 2, 0.42], [0, H, -Math.PI / 2, 0.3]]) {
+    const Rmax = Math.min(W, H) * size, n = 10;
+    const spokes = Array.from({ length: n + 1 }, (_, i) => ({ a: a0 + (i / n) * Math.PI / 2 + (i % n ? (R() - 0.5) * 0.08 : 0), r: Rmax * (0.88 + R() * 0.16) }));
+    const at = (k, r) => [cx + Math.cos(spokes[k].a) * Math.min(r, spokes[k].r), cy + Math.sin(spokes[k].a) * Math.min(r, spokes[k].r)];
+    for (let k = 0; k <= n; k++) silk(() => { x.beginPath(); x.moveTo(cx, cy); x.lineTo(...at(k, spokes[k].r)); }, 0.7);
+    // the sticky spiral: rings a bit further apart towards the outside, each thread sagging inwards
+    for (let r = Rmax * 0.1; r < Rmax * 0.95; r *= 1.11 + R() * 0.03) {
+      silk(() => {
+        x.beginPath(); x.moveTo(...at(0, r));
+        for (let k = 1; k <= n; k++) {
+          const am = (spokes[k - 1].a + spokes[k].a) / 2, rm = r * (0.9 + R() * 0.03);
+          x.quadraticCurveTo(cx + Math.cos(am) * rm, cy + Math.sin(am) * rm, ...at(k, r));
+          if (R() < 0.18) drops.push([...at(k, r), 0.8 + R() * 1.8]);
+        }
+      }, 0.5);
+    }
+    // a couple of broken threads drifting loose
+    for (let i = 0; i < 3; i++) {
+      const k = 1 + (R() * (n - 1) | 0), [sx, sy] = at(k, spokes[k].r * (0.5 + R() * 0.5)), L = 30 + R() * 60;
+      silk(() => { x.beginPath(); x.moveTo(sx, sy); x.bezierCurveTo(sx + 10, sy + L * 0.4, sx - 12, sy + L * 0.7, sx + 4, sy + L); }, 0.45);
+    }
+  }
+  for (const [dx, dy, r] of drops) {
+    const g = x.createRadialGradient(dx - r * 0.35, dy - r * 0.35, 0, dx, dy, r);
+    g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(0.45, 'rgba(220,235,255,.35)'); g.addColorStop(0.9, 'rgba(40,50,70,.35)'); g.addColorStop(1, 'rgba(40,50,70,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(dx, dy, r, 0, Math.PI * 2); x.fill();
+  }
+}
+// A small house spider: round body, eight jointed legs that twitch a little.
+function drawSpider(x, y, k, t) {
+  fctx.save(); fctx.translate(x, y); fctx.scale(k, k);
+  fctx.strokeStyle = '#1b130d'; fctx.lineCap = 'round'; fctx.lineJoin = 'round';
+  for (const s of [-1, 1]) for (let i = 0; i < 4; i++) {
+    const a = (-0.9 + i * 0.55) + Math.sin(t * 3 + i + s) * 0.06, knee = [s * Math.cos(a) * 11, Math.sin(a) * 9 - 7];
+    fctx.lineWidth = 1.7;
+    fctx.beginPath(); fctx.moveTo(s * 2, -1); fctx.lineTo(...knee);
+    fctx.lineTo(knee[0] + s * 5, knee[1] + 11 + i * 1.5); fctx.stroke();
+  }
+  const ab = fctx.createRadialGradient(-2, 6, 1, 0, 9, 9);
+  ab.addColorStop(0, '#5a4430'); ab.addColorStop(0.6, '#2a1d13'); ab.addColorStop(1, '#0c0805');
+  fctx.fillStyle = ab; fctx.beginPath(); fctx.ellipse(0, 9, 7, 8.5, 0, 0, Math.PI * 2); fctx.fill();
+  const th = fctx.createRadialGradient(-1, -2, 0.5, 0, -1, 5);
+  th.addColorStop(0, '#4a3524'); th.addColorStop(1, '#120c07');
+  fctx.fillStyle = th; fctx.beginPath(); fctx.ellipse(0, -1, 4.5, 4, 0, 0, Math.PI * 2); fctx.fill();
+  fctx.fillStyle = 'rgba(255,255,255,.5)'; fctx.beginPath(); fctx.arc(-2.2, 5.5, 1.2, 0, Math.PI * 2); fctx.fill();
+  fctx.restore();
+}
+
+// Rainbow: the real colour order (red outside, violet inside), a brighter sky inside the bow,
+// a faint second bow outside with its colours flipped, fading out towards the ground.
+function drawRainbow(x, W, H) {
+  const cx = W * 0.5, cy = H * 1.3, R = H * 1.22, bw = R * 0.055; // high in the sky, behind your head
+  const bow = (r, alpha, flip) => {
+    const cols = [[148, 0, 211], [75, 0, 255], [0, 120, 255], [0, 200, 80], [255, 240, 0], [255, 140, 0], [255, 20, 20]];
+    if (flip) cols.reverse();
+    const g = x.createRadialGradient(cx, cy, r - bw, cx, cy, r + bw);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    cols.forEach(([cr, cg, cb], i) => g.addColorStop(0.12 + (i / 6) * 0.76, `rgba(${cr},${cg},${cb},${alpha})`));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r + bw, 0, Math.PI * 2); x.arc(cx, cy, Math.max(0, r - bw), 0, Math.PI * 2, true); x.fill();
+  };
+  const sky = x.createRadialGradient(cx, cy, 0, cx, cy, R - bw);
+  sky.addColorStop(0.6, 'rgba(255,255,255,0)'); sky.addColorStop(1, 'rgba(255,255,255,.07)');
+  x.fillStyle = sky; x.beginPath(); x.arc(cx, cy, R - bw, 0, Math.PI * 2); x.fill();
+  bow(R, 0.32, false);
+  bow(R * 1.24, 0.12, true);
+  x.globalCompositeOperation = 'destination-in'; // fade towards the bottom, like it disappears in the haze
+  const fade = x.createLinearGradient(0, 0, 0, H);
+  fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.55, 'rgba(0,0,0,.85)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = fade; x.fillRect(0, 0, W, H);
+  x.globalCompositeOperation = 'destination-out'; // it goes behind your head, not across your face
+  const head = x.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.min(W, H) * 0.42);
+  head.addColorStop(0, 'rgba(0,0,0,1)'); head.addColorStop(0.65, 'rgba(0,0,0,.9)'); head.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = head; x.fillRect(0, 0, W, H);
+  x.globalCompositeOperation = 'source-over';
+}
+
+// Pixel: the dark gaps between the big pixels, like a real retro screen.
+function drawLcdGrid(x, W, H) {
+  const cols = 48, rows = Math.round(cols * H / W), cw = W / cols, ch = H / rows, line = Math.max(1, cw * 0.1);
+  x.fillStyle = 'rgba(0,0,0,.32)';
+  for (let i = 0; i <= cols; i++) x.fillRect(i * cw - line / 2, 0, line, H);
+  for (let j = 0; j <= rows; j++) x.fillRect(0, j * ch - line / 2, W, line);
+  x.fillStyle = 'rgba(255,255,255,.06)'; // a soft shine on the top edge of each pixel
+  for (let j = 0; j < rows; j++) x.fillRect(0, j * ch + line / 2, W, line * 0.7);
+}
+
+// Frozen: frosty haze and branching ice crystals creeping in from the edges, face left clear.
+function drawFrost(x, W, H, R) {
+  const haze = x.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.72);
+  haze.addColorStop(0, 'rgba(230,245,255,0)'); haze.addColorStop(1, 'rgba(230,245,255,.6)');
+  x.fillStyle = haze; x.fillRect(0, 0, W, H);
+  for (const [cx, cy] of [[0, 0], [W, 0], [0, H], [W, H]]) { // thick frost piles up in the corners
+    const rr = Math.min(W, H) * (0.35 + R() * 0.1), g = x.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    g.addColorStop(0, 'rgba(240,250,255,.85)'); g.addColorStop(0.5, 'rgba(225,242,255,.4)'); g.addColorStop(1, 'rgba(225,242,255,0)');
+    x.fillStyle = g; x.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+  }
+  x.lineCap = 'round';
+  const branch = (px, py, a, len, depth) => {
+    const ex = px + Math.cos(a) * len, ey = py + Math.sin(a) * len;
+    x.strokeStyle = `rgba(255,255,255,${0.3 + depth * 0.1})`; x.lineWidth = 0.5 + depth * 0.4;
+    x.beginPath(); x.moveTo(px, py); x.lineTo(ex, ey); x.stroke();
+    if (depth <= 0) return;
+    for (const turn of [-1, 1]) for (let k = 1; k <= 3; k++) branch(px + (ex - px) * k / 4, py + (ey - py) * k / 4, a + turn * (1 + R() * 0.15), len * (0.3 + R() * 0.12), depth - 1); // feathery side shoots
+    branch(ex, ey, a + (R() - 0.5) * 0.4, len * 0.7, depth - 1);
+  };
+  const edge = Math.min(W, H) * 0.09;
+  for (let i = 0; i < 90; i++) {
+    const side = i % 4, u = R();
+    const [px, py, a] = [[u * W, 0, Math.PI / 2], [W, u * H, Math.PI], [u * W, H, -Math.PI / 2], [0, u * H, 0]][side];
+    branch(px, py, a + (R() - 0.5) * 1.2, edge * (0.6 + R() * 0.8), 3);
+  }
+  x.globalCompositeOperation = 'destination-out'; // keep the middle (your face) clear
+  const clear = x.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.min(W, H) * 0.55);
+  clear.addColorStop(0, 'rgba(0,0,0,1)'); clear.addColorStop(0.7, 'rgba(0,0,0,.6)'); clear.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = clear; x.fillRect(0, 0, W, H);
+  x.globalCompositeOperation = 'source-over';
+}
+// Falling snow: soft out-of-focus flakes close to the camera, small sharp ones further away, and a few real six-armed crystals.
+const flakes = [];
+let flakeSprite = null, crystalSprite = null;
+function snowfall(t) {
+  if (!flakeSprite) {
+    flakeSprite = document.createElement('canvas'); flakeSprite.width = flakeSprite.height = 32;
+    const x = flakeSprite.getContext('2d'), g = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.4, 'rgba(255,255,255,.7)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 32, 32);
+    crystalSprite = document.createElement('canvas'); crystalSprite.width = crystalSprite.height = 64;
+    const c = crystalSprite.getContext('2d');
+    c.translate(32, 32); c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineCap = 'round'; c.shadowColor = 'rgba(200,230,255,.9)'; c.shadowBlur = 4;
+    for (let i = 0; i < 6; i++) {
+      c.rotate(Math.PI / 3); c.lineWidth = 2.2;
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -27); c.stroke(); c.lineWidth = 1.4;
+      for (const [d, L] of [[10, 7], [18, 5]]) for (const s of [-1, 1]) { c.beginPath(); c.moveTo(0, -d); c.lineTo(s * L, -d - L); c.stroke(); }
+    }
+  }
+  for (let n = 0; n < 2; n++) if (flakes.length < 160) {
+    const z = Math.random(); // 0 = far away, 1 = right in front of the camera
+    flakes.push({ x: Math.random() * W, y: -30, z, r: 1 + z * z * 14, vy: 0.6 + z * 2.2, sway: Math.random() * 6, crystal: z > 0.45 && z < 0.7 && Math.random() < 0.35, spin: Math.random() * 6 });
+  }
+  for (let i = flakes.length - 1; i >= 0; i--) {
+    const f = flakes[i];
+    f.y += f.vy; f.x += Math.sin(t * 1.3 + f.sway) * 0.35 * (0.5 + f.z);
+    if (f.y > H + 40) { flakes.splice(i, 1); continue; }
+    fctx.globalAlpha = f.z > 0.8 ? 0.55 : 0.95;
+    if (f.crystal) {
+      fctx.save(); fctx.translate(f.x, f.y); fctx.rotate(f.spin + t * 0.4);
+      fctx.drawImage(crystalSprite, -f.r * 1.4, -f.r * 1.4, f.r * 2.8, f.r * 2.8); fctx.restore();
+    } else fctx.drawImage(flakeSprite, f.x - f.r, f.y - f.r, f.r * 2, f.r * 2);
+  }
+  fctx.globalAlpha = 1;
+}
+
+// Night vision: the round view through the goggle tube, with soft dark edges.
+function drawEyepiece(x, W, H) {
+  const r = Math.min(W, H) * 0.62, g = x.createRadialGradient(W / 2, H / 2, r * 0.78, W / 2, H / 2, r);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.85, 'rgba(0,0,0,.75)'); g.addColorStop(1, 'rgba(0,0,0,.97)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = 'rgba(0,0,0,.97)';
+  x.beginPath(); x.rect(0, 0, W, H); x.arc(W / 2, H / 2, r, 0, Math.PI * 2, true); x.fill();
+}
+
+// Comic: reads the camera picture in small cells; dark cells get round halftone dots (bigger = darker),
+// and strong edges get black ink.
+const art = document.createElement('canvas'), actx = art.getContext('2d', { willReadFrequently: true });
+const ink = document.createElement('canvas'), ictx = ink.getContext('2d');
+const steadyCells = {};
+function readPicture(cols, rows) {
+  art.width = cols; art.height = rows;
+  actx.drawImage(base, 0, 0, base.width, base.height, 0, 0, cols, rows);
+  const d = actx.getImageData(0, 0, cols, rows).data, key = cols + 'x' + rows;
+  let L = steadyCells[key];
+  const fresh = !L;
+  if (fresh) L = steadyCells[key] = new Float32Array(cols * rows);
+  // Each cell's brightness is averaged over the last few frames, so tiny camera noise can't make
+  // halftone dots or pop-art colours flick on and off (real movement still shows up right away).
+  for (let i = 0; i < L.length; i++) {
+    const v = (0.3 * d[i * 4] + 0.59 * d[i * 4 + 1] + 0.11 * d[i * 4 + 2]) / 255;
+    L[i] = fresh || Math.abs(v - L[i]) > 0.18 ? v : L[i] * 0.6 + v * 0.4;
+  }
+  return L;
+}
+function comicPrint() {
+  const cell = 9, cols = Math.ceil(W / cell), rows = Math.ceil(H / cell), L = readPicture(cols, rows);
+  fctx.beginPath();
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const dark = 1 - L[j * cols + i] * 1.6; // only the real shadows get dots
+    if (dark < 0.2) continue;
+    const r = cell * 0.6 * Math.sqrt(dark), cx = (i + 0.5 + (j & 1) * 0.5) * cell, cy = (j + 0.5) * cell;
+    fctx.moveTo(cx + r, cy); fctx.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+  fctx.fillStyle = 'rgba(15,10,40,.35)'; fctx.fill();
+  // ink outlines where the brightness changes sharply
+  const ec = slow ? 6 : 4, ecols = Math.ceil(W / ec), erows = Math.ceil(H / ec), E = readPicture(ecols, erows);
+  fctx.beginPath();
+  for (let j = 1; j < erows - 1; j++) for (let i = 1; i < ecols - 1; i++) {
+    const k = j * ecols + i, g = Math.abs(E[k + 1] - E[k - 1]) + Math.abs(E[k + ecols] - E[k - ecols]);
+    if (g < 0.32) continue; // only strong edges, so the ink reads as lines, not specks
+    const r = Math.min(2.6, 1.2 + g * 3); fctx.moveTo(i * ec + r, j * ec); fctx.arc(i * ec, j * ec, r, 0, Math.PI * 2);
+  }
+  fctx.fillStyle = 'rgba(10,8,20,.85)'; fctx.fill();
+}
+
+// Pop Art: each quarter is the picture printed with just three flat inks.
+const POP_INKS = [['#1b1464', '#ff2d95', '#ffd400'], ['#b80c2f', '#13a89e', '#f6e8b1'], ['#0b3954', '#ff9f1c', '#e0ff4f'], ['#2d0036', '#36d66b', '#7fe3ff']]
+  .map((p) => p.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))));
+let popMean = 0;
+function popArt() {
+  const pw = Math.max(40, Math.round(W / 5)), ph = Math.max(40, Math.round(H / 5)), L = readPicture(pw, ph);
+  let mean = 0; for (const v of L) mean += v; mean /= L.length;
+  popMean = popMean ? popMean * 0.9 + mean * 0.1 : mean; mean = popMean; // steady ink thresholds
+  const t1 = mean * 0.72, t2 = mean * 1.18;
+  ink.width = pw; ink.height = ph;
+  const img = ictx.createImageData(pw, ph), d = img.data;
+  fctx.imageSmoothingEnabled = true;
+  [[0, 0], [W / 2, 0], [0, H / 2], [W / 2, H / 2]].forEach(([qx, qy], q) => {
+    const P = POP_INKS[q];
+    for (let i = 0; i < L.length; i++) { const c = P[L[i] < t1 ? 0 : L[i] < t2 ? 1 : 2]; d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255; }
+    ictx.putImageData(img, 0, 0);
+    fctx.drawImage(ink, qx, qy, W / 2, H / 2);
+  });
+  fctx.fillStyle = '#fff'; fctx.fillRect(W / 2 - 3, 0, 6, H); fctx.fillRect(0, H / 2 - 3, W, 6);
+}
+
+// Old TV: a curved glass screen with rounded corners, darker towards the edges, and a soft room reflection.
+function drawCrt(x, W, H) {
+  const m = Math.min(W, H) * 0.025, r = Math.min(W, H) * 0.08;
+  x.fillStyle = '#050505';
+  x.beginPath(); x.rect(0, 0, W, H); x.roundRect(m, m, W - 2 * m, H - 2 * m, r); x.fill('evenodd');
+  const v = x.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.55);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.75)');
+  x.fillStyle = v; x.fillRect(0, 0, W, H);
+  const glare = x.createRadialGradient(W * 0.28, H * 0.18, 0, W * 0.28, H * 0.18, Math.min(W, H) * 0.45);
+  glare.addColorStop(0, 'rgba(255,255,255,.08)'); glare.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = glare; x.fillRect(0, 0, W, H);
+}
+
+// Galaxy: glowing clouds of gas (nebula) around the edges, and stars in real star colours.
+const STAR_COLOURS = ['#9bb0ff', '#cad7ff', '#f8f7ff', '#fff4ea', '#ffd2a1', '#ffcc6f'];
+const brightStars = Array.from({ length: 10 }, () => ({ x: Math.random(), y: Math.random(), r: 1.4 + Math.random() * 1.6, speed: 0.8 + Math.random() * 2, phase: Math.random() * 6, color: STAR_COLOURS[Math.random() * 6 | 0] }));
+function drawNebula(x, W, H, R) {
+  const big = Math.max(W, H);
+  x.globalCompositeOperation = 'lighter';
+  const cols = [[120, 60, 210], [40, 90, 220], [235, 70, 160], [60, 180, 230], [255, 120, 90]];
+  for (let i = 0; i < 80; i++) {
+    const t = R(), band = i < 50; // most clouds along a band across the sky, the rest anywhere
+    const px = band ? t * W + (R() - 0.5) * W * 0.5 : R() * W, py = band ? (1 - t) * H * 0.9 + (R() - 0.5) * H * 0.5 : R() * H;
+    const rad = big * (0.05 + R() * 0.25), [cr, cg, cb] = cols[R() * cols.length | 0], a = 0.08 + R() * 0.18;
+    const g = x.createRadialGradient(px, py, 0, px, py, rad);
+    g.addColorStop(0, `rgba(${cr},${cg},${cb},${a})`); g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+    x.fillStyle = g; x.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+  }
+  x.globalCompositeOperation = 'source-over'; // dark dust lanes
+  for (let i = 0; i < 14; i++) {
+    const px = R() * W, py = R() * H, rad = big * (0.04 + R() * 0.1), g = x.createRadialGradient(px, py, 0, px, py, rad);
+    g.addColorStop(0, 'rgba(5,0,15,.22)'); g.addColorStop(1, 'rgba(5,0,15,0)');
+    x.fillStyle = g; x.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+  }
+  x.globalCompositeOperation = 'destination-out'; // keep your face mostly clear
+  const clear = x.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, Math.min(W, H) * 0.55);
+  clear.addColorStop(0, 'rgba(0,0,0,.85)'); clear.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = clear; x.fillRect(0, 0, W, H);
+  x.globalCompositeOperation = 'source-over';
+}
+function drawStars(x, W, H, R) {
+  for (let i = 0; i < 320; i++) {
+    const px = R() * W, py = R() * H, r = 0.3 + Math.pow(R(), 3) * 1.2;
+    x.globalAlpha = 0.35 + R() * 0.6; x.fillStyle = STAR_COLOURS[R() * 6 | 0];
+    x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
+  }
+  x.globalAlpha = 1;
+}
+// a bright star: glowing core plus the four light spikes cameras and telescopes see
+function starburst(x, px, py, r, color) {
+  const g = x.createRadialGradient(px, py, 0, px, py, r * 5);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.15, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.globalCompositeOperation = 'lighter';
+  x.beginPath(); x.arc(px, py, r * 5, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = color; x.lineWidth = 0.7;
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    const L = r * 9, s = x.createLinearGradient(px - dx * L, py - dy * L, px + dx * L, py + dy * L);
+    s.addColorStop(0, 'rgba(255,255,255,0)'); s.addColorStop(0.5, 'rgba(255,255,255,.8)'); s.addColorStop(1, 'rgba(255,255,255,0)');
+    x.strokeStyle = s; x.beginPath(); x.moveTo(px - dx * L, py - dy * L); x.lineTo(px + dx * L, py + dy * L); x.stroke();
+  }
+  x.globalCompositeOperation = 'source-over';
+}
+// Simple 2D extras that some 3D filters switch on with a flag.
+function extras(F, f) {
+  if (F.sparkle) spawn('sparkle', f);
+  if (F.hearts) spawn('heart', f);
+  if (F.cheeks) for (const ch of f.cheeks) { fctx.beginPath(); fctx.arc(ch.x, ch.y, f.w * 0.11, 0, Math.PI * 2); fctx.fillStyle = 'rgba(255,90,120,.4)'; fctx.fill(); }
+}
+const needsFace = (F) => !!(F.build || F.face || F.pre);
+
+// ---------- drawing loop ----------
+let lastVideoTime = -1, lastFrame = performance.now();
+// Cameras deliver ~30 frames a second, so drawing faster than that only heats up the device.
+let lastDraw = 0;
+// Draw once for every new camera frame (the browser tells us when one arrives), right at the next
+// screen refresh. Where the browser can't tell us, draw about 30 times a second as before.
+let cameraFrames = 0, drawnFrames = -1, watching = null;
+function watchFrames() {
+  if (!(video instanceof HTMLVideoElement) || !('requestVideoFrameCallback' in video)) { watching = null; return; }
+  const v = video; watching = v;
+  const tick = () => { if (watching !== v) return; cameraFrames++; v.requestVideoFrameCallback(tick); };
+  v.requestVideoFrameCallback(tick);
+}
+function render(now) {
+  requestAnimationFrame(render);
+  if (watching === video ? cameraFrames === drawnFrames && now - lastDraw < 100 : now - lastDraw < 30) return;
+  drawnFrames = cameraFrames;
+  lastDraw = now;
+  if (photoWanted) { photoWanted = false; return snapFrame(now); }
+  const start = performance.now();
+  frame(now);
+  // Keep an eye on how long frames take; if the device is struggling, do less work.
+  frameCost = frameCost * 0.95 + (performance.now() - start) * 0.05;
+  slow = frameCost > 22;
+}
+let frameCost = 0, slow = false, frameCount = 0;
+let faceSeenAt = 0;
+let detectTs = 0, maskTs = 0;
+function frame(now) {
+  const dt = Math.max(0, Math.min(50, now - lastFrame)); lastFrame = now; // never negative
+  const t = (now - t0) / 1000;
+  const F = FILTERS[current];
+  if (!(video.videoWidth || video.width)) return;
+
+  // 1. find faces (only when this filter uses them): the worker looks while we keep drawing
+  if (trackerBusy && now - trackerSentAt > 2000) trackerBusy = false; // never wait forever on a lost answer
+  if (landmarker && needsFace(F) && !trackerBusy && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    detectTs = Math.max(detectTs + 1, now); // MediaPipe jams for good if a timestamp ever goes backwards
+    sendFrame(detectTs, F);
+  }
+  if (F.build) runHands(now);
+  // hand outlines come from the very frame being drawn, using the latest faces and hands
+  if (F.build) { maskTs = Math.max(maskTs + 1, now); try { updateHandMask(maskTs, now); } catch (e) { handMask = null; console.warn('hand outline', e); } } // never let this break the face filters
+  if (F.build) try { updateTongues(now); } catch (e) { tongues = []; console.warn('tongue', e); }
+
+  // 2. camera picture
+  const { vw, vh, s, ox, oy } = frameFit();
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  bctx.imageSmoothingQuality = 'high'; // resizing the canvas resets this, so set it every frame
+  bctx.clearRect(0, 0, W, H);
+  bctx.save();
+  if (facing === 'user') { bctx.translate(W, 0); bctx.scale(-1, 1); }
+  if (F.pixel) {
+    const cols = 48, rows = Math.round(cols * H / W);
+    small.width = cols; small.height = rows;
+    sctx.drawImage(video, -ox / s, -oy / s, W / s, H / s, 0, 0, cols, rows);
+    bctx.imageSmoothingEnabled = false;
+    bctx.drawImage(small, 0, 0, W, H);
+    bctx.imageSmoothingEnabled = true;
+  } else {
+    bctx.drawImage(video, ox, oy, vw * s, vh * s);
+  }
+  bctx.restore();
+  if (F.mirror) {
+    bctx.save(); bctx.translate(W, 0); bctx.scale(-1, 1);
+    bctx.drawImage(base, 0, 0, Math.floor(W / 2 * DPR), H * DPR, 0, 0, Math.floor(W / 2), H);
+    bctx.restore();
+  }
+  if (F.pre) for (const f of faces) F.pre(f);
+  const look = typeof F.look === 'function' ? F.look(t) : (F.look || 'none');
+  if (base.style.filter !== look) base.style.filter = look;
+
+  // 3. stickers + effects
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fctx.clearRect(0, 0, W, H);
+  if (F.face) for (const f of faces) F.face(fctx, f, t);
+  for (const f of faces) extras(F, f);
+  if (F.scene) F.scene(t);
+  if (F.confetti) confetti();
+  if (F.snow) snowfall(t); // real falling snow (soft flakes and a few crystals), not emoji
+  const outlined = F.build && handMaskFresh(now); // exact hand outline this frame (otherwise fall back to rough hand shapes)
+  stage3d?.update(needsFace(F) ? lastResult : null, frameFit(), facing === 'user', dt / 1000, t, F.build && now - handsAt < 300 ? lastHands : null,
+    { cutout: !outlined, handCover: F.build ? handCover : null, tongue: F.build ? tongues : null });
+  drawParticles(dt);
+  if (F.build && now - handsAt < 300 && !outlined) eraseHands(lastHands); // after all 2D effects are drawn
+  drawHandLayer(F.build ? now : -1e9, look); // your real hand on top of everything
+
+  // 4. friendly hint when a face filter can't find anyone
+  let hint = '';
+  if (needsFace(F)) {
+    if (faceStatus === 'loading') hint = 'Getting filters ready… ✨';
+    else if (faceStatus === 'failed') hint = 'Face filters need internet 🌐';
+    else if (!faces.length && now - faceSeenAt > 900) hint = 'Show me your face! 🙂'; // no flicker when a hand passes by
+  }
+  setHint(hint);
+}
+let hintText = null;
+function setHint(text) {
+  if (text === hintText) return;
+  hintText = text;
+  if (text) $('#hint').textContent = text;
+  $('#hint').style.opacity = text ? 1 : 0;
+}
+
+function resize() {
+  DPR = Math.min(1.5, window.devicePixelRatio || 1); // the camera is only 720p, so more pixels just burn battery
+  W = innerWidth; H = innerHeight;
+  for (const c of [base, fx, handLayer]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+}
+addEventListener('resize', resize);
+
+// ---------- filter picker ----------
+const list = $('#list');
+list.innerHTML = FILTERS.map((F, i) => `<button class="f" data-i="${i}" aria-label="${F.name}">${F.icon}</button>`).join('');
+const buttons = [...list.children];
+let nameTimer;
+function select(i, scroll = true) {
+  i = Math.max(0, Math.min(FILTERS.length - 1, i));
+  if (i !== current) { particles = []; faces = []; lastResult = null; }
+  current = i;
+  stage3d?.setFilter(FILTERS[i]);
+  buttons.forEach((b, k) => b.classList.toggle('on', k === i));
+  if (scroll) { autoScrollUntil = performance.now() + 700; buttons[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); }
+  $('#name').textContent = FILTERS[i].critters ? CREATURES[critterPick].name : FILTERS[i].name;
+  $('#name').style.opacity = 1;
+  clearTimeout(nameTimer); nameTimer = setTimeout(() => ($('#name').style.opacity = 0), 1200);
+  showCritterTray(!!FILTERS[i].critters);
+  try { navigator.vibrate?.(8); } catch {}
+}
+// ---------- Critters picker ----------
+const critterTray = $('#critterTray');
+const hex6 = (n) => n.toString(16).padStart(6, '0');
+critterTray.innerHTML = CREATURES.map((p, i) => `<button class="pk" data-p="${i}" aria-label="${p.name}" style="background:radial-gradient(circle at 35% 30%, #${hex6(p.c)}, #${hex6(p.c2)})">${p.icon}<b>${p.n}</b></button>`).join('');
+const critterButtons = [...critterTray.children];
+function showCritterTray(on) {
+  critterTray.classList.toggle('hidden', !on);
+  if (on) { critterButtons.forEach((b, k) => b.classList.toggle('on', k === critterPick)); critterButtons[critterPick].scrollIntoView({ inline: 'center', block: 'nearest' }); }
+}
+function pickCritter(i) {
+  critterPick = i;
+  critterButtons.forEach((b, k) => b.classList.toggle('on', k === i));
+  if (FILTERS[current] === CRITTERS) { particles = []; stage3d?.setFilter(CRITTERS); }
+  $('#name').textContent = CREATURES[i].name;
+  $('#name').style.opacity = 1;
+  clearTimeout(nameTimer); nameTimer = setTimeout(() => ($('#name').style.opacity = 0), 1500);
+  try { navigator.vibrate?.(8); } catch {}
+}
+critterButtons.forEach((b) => (b.onclick = () => pickCritter(+b.dataset.p)));
+// Tapping a filter picks it; tapping the one already in the ring takes a photo.
+buttons.forEach((b) => (b.onclick = () => (+b.dataset.i === current ? takePhoto() : select(+b.dataset.i))));
+// Pick whichever filter is under the ring after scrolling.
+let scrollTimer;
+let autoScrollUntil = 0; // ignore the tray's own animated scroll after a tap/swipe
+list.addEventListener('scroll', () => {
+  clearTimeout(scrollTimer);
+  if (performance.now() < autoScrollUntil) return;
+  scrollTimer = setTimeout(() => {
+    const centre = list.getBoundingClientRect().left + list.clientWidth / 2;
+    let best = 0, bestD = Infinity;
+    buttons.forEach((b, k) => { const r = b.getBoundingClientRect(); const d = Math.abs(r.left + r.width / 2 - centre); if (d < bestD) { bestD = d; best = k; } });
+    if (best !== current) select(best, false);
+  }, 90);
+});
+// Swipe anywhere on the camera to change filter.
+let touchX = null;
+$('#stage').addEventListener('touchstart', (e) => (touchX = e.touches[0].clientX), { passive: true });
+$('#stage').addEventListener('touchend', (e) => {
+  if (touchX == null) return;
+  const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+  if (Math.abs(dx) > 50) select(current + (dx < 0 ? 1 : -1));
+});
+addEventListener('keydown', (e) => {
+  if (!$('#photo').classList.contains('hidden')) { if (e.key === 'Escape') closePhoto(); return; }
+  if (e.key === ' ' && !$('#start').classList.contains('hidden')) return;
+  if (e.key === ' ') { e.preventDefault(); takePhoto(); }
+  if (e.key === 'ArrowRight') select(current + 1);
+  if (e.key === 'ArrowLeft') select(current - 1);
+});
+
+// ---------- photos ----------
+// The next frame is drawn extra sharp, then flattened into one picture (camera + 3D + stickers).
+let photoWanted = false, photoURL = null;
+function takePhoto() {
+  if (!stream || !video.videoWidth || !$('#photo').classList.contains('hidden')) return;
+  photoWanted = true;
+}
+// Phones, tablets and computers all differ a little in how photos can be made and saved:
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const iosHomeScreen = isIOS && navigator.standalone === true; // download links do nothing in an iPhone home-screen app
+// Older browsers (like Safari before 18) can't apply colour filters while drawing, so then we do the colour maths ourselves.
+const canvasFilterWorks = (() => {
+  try {
+    const c = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+    c.filter = 'invert(1)'; c.fillStyle = '#fff'; c.fillRect(0, 0, 1, 1);
+    return c.getImageData(0, 0, 1, 1).data[0] < 128;
+  } catch { return false; }
+})();
+// Turns a CSS filter string like "hue-rotate(85deg) saturate(1.8)" into one colour matrix (3 rows of r, g, b, offset).
+function lookMatrix(look) {
+  const mul = (A, B) => { const R = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) R[i * 4 + j] = A[i * 4] * B[j] + A[i * 4 + 1] * B[4 + j] + A[i * 4 + 2] * B[8 + j] + (j === 3 ? A[i * 4 + 3] : 0); return R; };
+  const blend = (a, base, full) => base.map((b, k) => b + (full[k] - b) * a); // mix identity → full effect by amount a
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  let M = I;
+  for (const [, fn, arg] of look.matchAll(/([a-z-]+)\(([^)]*)\)/g)) {
+    let v = parseFloat(arg);
+    if (arg.includes('%')) v /= 100;
+    if (arg.includes('turn')) v *= 360; else if (/\drad/.test(arg)) v *= 180 / Math.PI;
+    let F = null;
+    if (fn === 'saturate') F = [0.213 + 0.787 * v, 0.715 - 0.715 * v, 0.072 - 0.072 * v, 0, 0.213 - 0.213 * v, 0.715 + 0.285 * v, 0.072 - 0.072 * v, 0, 0.213 - 0.213 * v, 0.715 - 0.715 * v, 0.072 + 0.928 * v, 0];
+    else if (fn === 'hue-rotate') {
+      const a = v * Math.PI / 180, c = Math.cos(a), n = Math.sin(a);
+      F = [0.213 + c * 0.787 - n * 0.213, 0.715 - c * 0.715 - n * 0.715, 0.072 - c * 0.072 + n * 0.928, 0,
+           0.213 - c * 0.213 + n * 0.143, 0.715 + c * 0.285 + n * 0.140, 0.072 - c * 0.072 - n * 0.283, 0,
+           0.213 - c * 0.213 - n * 0.787, 0.715 - c * 0.715 + n * 0.715, 0.072 + c * 0.928 + n * 0.072, 0];
+    }
+    else if (fn === 'grayscale') F = blend(Math.min(1, v), I, [0.2126, 0.7152, 0.0722, 0, 0.2126, 0.7152, 0.0722, 0, 0.2126, 0.7152, 0.0722, 0]);
+    else if (fn === 'sepia') F = blend(Math.min(1, v), I, [0.393, 0.769, 0.189, 0, 0.349, 0.686, 0.168, 0, 0.272, 0.534, 0.131, 0]);
+    else if (fn === 'brightness') F = [v, 0, 0, 0, 0, v, 0, 0, 0, 0, v, 0];
+    else if (fn === 'contrast') { const o = 0.5 - 0.5 * v; F = [v, 0, 0, o, 0, v, 0, o, 0, 0, v, o]; }
+    else if (fn === 'invert') { const k = 1 - 2 * v; F = [k, 0, 0, v, 0, k, 0, v, 0, 0, k, v]; }
+    if (F) M = mul(F, M);
+  }
+  return M;
+}
+function applyLook(c, w, h, look) {
+  const M = lookMatrix(look), img = c.getImageData(0, 0, w, h), d = img.data;
+  const o0 = M[3] * 255, o1 = M[7] * 255, o2 = M[11] * 255;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    d[i] = M[0] * r + M[1] * g + M[2] * b + o0;
+    d[i + 1] = M[4] * r + M[5] * g + M[6] * b + o1;
+    d[i + 2] = M[8] * r + M[9] * g + M[10] * b + o2;
+  }
+  c.putImageData(img, 0, 0);
+}
+function snapFrame(now) {
+  const keep = DPR, { s } = frameFit();
+  const sizeTo = (d) => { DPR = d; for (const c of [base, fx, handLayer]) { c.width = Math.round(W * d); c.height = Math.round(H * d); } };
+  sizeTo(Math.min(3, Math.max(keep, 1 / s), Math.sqrt(8e6 / (W * H)))); // as sharp as the camera allows, but small enough for iPads
+  frame(now);
+  const out = document.createElement('canvas');
+  out.width = base.width; out.height = base.height;
+  const c = out.getContext('2d');
+  const look = base.style.filter;
+  // The colour effect lives in CSS, so copy it over
+  if (look && look !== 'none' && canvasFilterWorks) { c.filter = look; c.drawImage(base, 0, 0); c.filter = 'none'; }
+  else { c.drawImage(base, 0, 0); if (look && look !== 'none') applyLook(c, out.width, out.height, look); }
+  if (gl.style.visibility === 'visible') { // 3D layer: same spot and mirroring as on screen
+    const { vw, vh, ox, oy } = frameFit(), k = out.width / W, w = vw * s, h = vh * s;
+    c.save(); c.translate((ox + w / 2) * k, oy * k); if (facing === 'user') c.scale(-1, 1);
+    c.drawImage(gl, -w / 2 * k, 0, w * k, h * k);
+    c.restore();
+  }
+  c.drawImage(fx, 0, 0);
+  // your hand goes on top, with the same colour effect as the camera picture
+  if (look && look !== 'none' && canvasFilterWorks) { c.filter = look; c.drawImage(handLayer, 0, 0); c.filter = 'none'; }
+  else if (look && look !== 'none') { const t = Object.assign(document.createElement('canvas'), { width: out.width, height: out.height }), tc = t.getContext('2d'); tc.drawImage(handLayer, 0, 0); applyLook(tc, t.width, t.height, look); c.drawImage(t, 0, 0); }
+  else c.drawImage(handLayer, 0, 0);
+  sizeTo(keep);
+  if (out.toBlob) out.toBlob(showPhoto, 'image/jpeg', 0.92);
+  else fetch(out.toDataURL('image/jpeg', 0.92)).then((r) => r.blob()).then(showPhoto, () => {});
+  $('#flash').style.transition = 'none'; $('#flash').style.opacity = 1;
+  requestAnimationFrame(() => { $('#flash').style.transition = ''; $('#flash').style.opacity = 0; });
+  try { navigator.vibrate?.(20); } catch {}
+}
+function showPhoto(blob) {
+  if (!blob) return;
+  if (photoURL) URL.revokeObjectURL(photoURL);
+  photoURL = URL.createObjectURL(blob);
+  const d = new Date(), pad = (n) => String(n).padStart(2, '0');
+  $('#photoImg').src = photoURL;
+  $('#photoSave').href = photoURL;
+  $('#photoSave').download = `silly-cam-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.jpg`;
+  $('#photoTip').classList.toggle('hidden', !isIOS); // iPhone/iPad: holding the photo saves it straight to Photos
+  $('#photo').classList.toggle('holdOnly', iosHomeScreen);
+  $('#photo').classList.remove('hidden');
+}
+function closePhoto() {
+  $('#photo').classList.add('hidden');
+  $('#photoImg').removeAttribute('src');
+  if (photoURL) { URL.revokeObjectURL(photoURL); photoURL = null; }
+}
+$('#photoBack').onclick = closePhoto;
+$('#shutter').onclick = takePhoto;
+
+// ---------- pause when hidden ----------
+// Turn the camera off while the app is in the background so nothing keeps running.
+// Only once the app is actually running, so it can never collide with the very first start.
+let started = false;
+document.addEventListener('visibilitychange', async () => {
+  if (!started || !stream) return;
+  if (document.hidden) { stream.getTracks().forEach((tr) => tr.stop()); video.pause(); }
+  else { try { await startCamera(); } catch {} }
+});
+
+// ---------- camera ----------
+let stream = null;
+// One camera start at a time: a second request just waits for the one already happening.
+let starting = null;
+function startCamera() {
+  return (starting ||= openCamera().finally(() => { starting = null; }));
+}
+async function openCamera() {
+  stream?.getTracks().forEach((tr) => tr.stop());
+  // 1080p is sharp on phones and laptops; 4K looked about the same but made computers run hot and slow.
+  // Phones held upright hand back a tall picture. Cameras that can't do 1080p just give their best.
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+      facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 }, resizeMode: { ideal: 'none' },
+    } });
+  } catch (e) {
+    if (e.name !== 'OverconstrainedError') throw e;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: facing } });
+  }
+  autoAdjust(stream.getVideoTracks()[0]);
+  video.srcObject = stream;
+  try { await video.play(); }
+  catch (e) { if (e.name !== 'AbortError') throw e; await video.play(); } // interrupted by a reload: just play again
+  watchFrames();
+}
+// Keep focus, brightness and colour adjusting on their own, where the camera supports it.
+function autoAdjust(track) {
+  const caps = track?.getCapabilities?.() || {}, adv = {};
+  for (const k of ['focusMode', 'exposureMode', 'whiteBalanceMode']) if (caps[k]?.includes('continuous')) adv[k] = 'continuous';
+  if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv] }).catch(() => {});
+}
+$('#flipBtn').onclick = async () => {
+  facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCamera(); } catch { facing = 'user'; await startCamera(); }
+};
+$('#startBtn').onclick = async () => {
+  $('#startBtn').textContent = 'Starting… 📷';
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('nocam');
+    await startCamera();
+  } catch (e) {
+    $('#startBtn').textContent = 'Try again 📷';
+    $('#startNote').outerHTML = `<div class="err" id="startNote">${
+      e.name === 'NotAllowedError' ? '🙈 The camera is turned off for this app.<br>Ask a grown-up to allow the camera, then try again!'
+      : e.name === 'NotFoundError' || e.message === 'nocam' ? '📷 No camera found on this device.'
+      : '😕 The camera is busy or not working. Try again!'}</div>`;
+    return;
+  }
+  $('#start').classList.add('hidden');
+  started = true;
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  $('#flipBtn').classList.toggle('hidden', cams.length < 2);
+  select(1);
+  $('#shutter').classList.remove('hidden');
+  $('#name').textContent = 'Tap 📸 to take a photo!';
+  clearTimeout(nameTimer); nameTimer = setTimeout(() => ($('#name').style.opacity = 0), 3000);
+};
+
+resize();
+select(0, false);
+loadFaceTracker();
+requestAnimationFrame(render);
+window.__silly = { FILTERS, select, frame, takePhoto, useSource(src) { video = src; lastVideoTime = -1; watchFrames(); },
+  // One deterministic step for tests: track the current camera frame, wait for the answer, then draw with it.
+  async step() {
+    if (!landmarker || !needsFace(FILTERS[current])) { frame(performance.now()); return faces.length; }
+    const wait = (p) => Promise.race([p, new Promise((r) => setTimeout(r, 5000))]); // never hang a test
+    if (trackerBusy) await wait(nextTrackResult());
+    lastVideoTime = -1; const answer = nextTrackResult(); frame(performance.now()); await wait(answer);
+    frame(performance.now()); return faces.length;
+  }, get trackCost() { return trackCost; }, get frameCost() { return frameCost; }, get landmarker() { return landmarker; }, get lastResult() { return lastResult; }, get stage3d() { return stage3d; }, get lastHands() { return lastHands; }, get handMask() { return handMask; }, get handOnFace() { return handOnFace; }, get handCover() { return handCover; }, get tongues() { return tongues; }, // test hooks
+   get faces() { return faces; }, get faceStatus() { return faceStatus; } };
+</script>
+</body>
+</html>
