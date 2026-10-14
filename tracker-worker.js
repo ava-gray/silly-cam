@@ -19,7 +19,7 @@ let faces = null, finders = [], hands = null;
 
 self.onmessage = async (e) => {
   const msg = e.data;
-  if (msg.type === 'init') return init(msg.V, msg.role || 'both');
+  if (msg.type === 'init') { phone = !!msg.phone; return init(msg.V, msg.role || 'both'); }
   if (msg.type === 'hands') {
     const start = performance.now(), out = { type: 'hands', ts: msg.ts };
     try { out.result = hands.detectForVideo(msg.bitmap, msg.ts); } catch (err) { out.result = null; out.error = String(err); }
@@ -45,7 +45,7 @@ self.onmessage = async (e) => {
   self.postMessage(out);
 };
 
-let step = 'loading MediaPipe';
+let step = 'loading MediaPipe', phone = false; // phone: lighter tracking (no group finders)
 async function init(V, role) {
   try {
     // MediaPipe's CommonJS build works in a classic worker with a tiny "exports" stand-in.
@@ -84,7 +84,7 @@ async function init(V, role) {
       catch { delegate = 'GPU'; faces = await FaceLandmarker.createFromOptions(files, opts('GPU')); }
       self.postMessage({ type: 'ready', what: 'faces' });
     }
-    if (role === 'main') return;
+    if (role === 'main' || phone) return;
     // Three extra face trackers for the group finder's picture slices (each keeps its own timeline).
     try { for (let i = 0; i < 3; i++) finders.push(await FaceLandmarker.createFromOptions(files, opts(delegate))); self.postMessage({ type: 'ready', what: 'finders' }); }
     catch (err) { finders = []; console.warn('Group finder unavailable', err); }

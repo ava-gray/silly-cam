@@ -134,7 +134,8 @@ async function loadFaceTracker() {
     // holds up the camera picture. If workers don't work here, the same thing runs on this page instead.
     landmarker = await startWorkerTracker(V, 'main').catch((e) => { console.warn('Tracking worker unavailable, tracking on the page', e); return startPageTracker(vision, files); });
     // The group finder gets its own worker, so the main face tracker can keep up with every camera frame.
-    if (landmarker.worker) startWorkerTracker(V, 'finders').then((f) => (finderTracker = f)).catch((e) => console.warn('Group finder unavailable', e));
+    // (Phones skip it: on an iPhone the extra trackers fight the main one for the few fast cores and heat it up.)
+    if (landmarker.worker && !PHONE) startWorkerTracker(V, 'finders').then((f) => (finderTracker = f)).catch((e) => console.warn('Group finder unavailable', e));
     // Hands, so you can touch the filters (loads in the background), in a worker of their own, so looking for
     // hands never holds up the picture. They can't share the face trackers' worker. If workers don't work
     // here, hands are looked for on this page (GPU measured faster there: 8–19ms vs 20–36ms on CPU).
@@ -152,7 +153,8 @@ async function loadFaceTracker() {
       baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite', delegate: d },
       runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false,
     });
-    ImageSegmenter.createFromOptions(files, segOpts('GPU')).catch(() => ImageSegmenter.createFromOptions(files, segOpts('CPU')))
+    // (Phones skip the skin finder: it's a whole extra model every few frames. Hands then use the simpler hand-shaped cut-out.)
+    (PHONE ? Promise.reject(new Error('skipped on phones')) : ImageSegmenter.createFromOptions(files, segOpts('GPU')).catch(() => ImageSegmenter.createFromOptions(files, segOpts('CPU'))))
       .then((sg) => {
         // warm it up once now (shader setup, first mask read), so the first hand on your face doesn't freeze the picture
         try {
@@ -225,10 +227,24 @@ function bulge(x, y, r, zoom) {
   bctx.restore();
 }
 
+// Phones take longer to find a face than a camera frame lasts, so the filter would trail behind your face
+// in the live picture. Instead, phones keep a copy of each frame sent to the face tracker and show that copy
+// once its answer is back: the picture is a few hundredths of a second later, but the filter sits exactly on you.
+const heldPics = [0, 1].map(() => { const c = document.createElement('canvas'); return { c, ctx: c.getContext('2d'), ts: -1, at: 0 }; });
+let shownPic = null, slowFind = false;
+function holdPicture(ts) {
+  const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height, p = heldPics.find((q) => q !== shownPic);
+  if (p.c.width !== vw || p.c.height !== vh) { p.c.width = vw; p.c.height = vh; }
+  p.ctx.drawImage(video, 0, 0, vw, vh);
+  p.ts = ts; p.at = performance.now();
+}
+// the camera picture to draw: the live video, or (phones, while tracking is slow) the frame the faces were found in
+const pictureNow = (F) => slowFind && shownPic && needsFace(F) && performance.now() - shownPic.at < 400 ? shownPic : null;
+
 // Face tracking looks at a small copy of the frame, so a sharp 4K camera doesn't slow it down.
 function trackingFrame() {
   const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
-  const k = Math.min(1, 640 / Math.max(vw, vh)); // plenty for finding faces, and fast
+  const k = Math.min(1, (PHONE ? 480 : 640) / Math.max(vw, vh)); // plenty for finding faces, and fast (phones: a bit smaller still)
   const w = Math.round(vw * k), h = Math.round(vh * k);
   if (track.width !== w || track.height !== h) { track.width = w; track.height = h; }
   tctx.drawImage(video, 0, 0, w, h);
@@ -283,7 +299,7 @@ function startWorkerTracker(V, role) {
         if (m.what === want) { clearTimeout(timer); resolve({ worker: true, post: (msg, transfer) => w.postMessage(msg, transfer) }); }
       }
     };
-    w.postMessage({ type: 'init', V, role });
+    w.postMessage({ type: 'init', V, role, phone: PHONE });
   });
 }
 // The same tracking, on the page itself (for browsers where the worker can't load MediaPipe).
@@ -297,7 +313,7 @@ async function startPageTracker({ FaceLandmarker }, files) {
   try { faceT = await FaceLandmarker.createFromOptions(files, opts('CPU')); }
   catch { delegate = 'GPU'; faceT = await FaceLandmarker.createFromOptions(files, opts('GPU')); }
   trackerReady.faces = true;
-  (async () => { try { for (let i = 0; i < 3; i++) finderTs.push(await FaceLandmarker.createFromOptions(files, opts(delegate))); trackerReady.finders = true; } catch (e) { console.warn('Group finder unavailable', e); } })();
+  if (!PHONE) (async () => { try { for (let i = 0; i < 3; i++) finderTs.push(await FaceLandmarker.createFromOptions(files, opts(delegate))); trackerReady.finders = true; } catch (e) { console.warn('Group finder unavailable', e); } })();
   return {
     post(msg) {
       const start = performance.now(), out = { type: 'result', ts: msg.ts };
@@ -314,6 +330,8 @@ async function startPageTracker({ FaceLandmarker }, files) {
 // Send the current camera frame (plus, now and then, one group-finder slice) to be tracked.
 function sendFrame(ts, F) {
   const trackC = trackingFrame();
+  // (switches on above 28 ms and off below 20, so the picture doesn't flip back and forth between live and held)
+  if (PHONE) { slowFind = trackCost > (slowFind ? 20 : 28); if (slowFind) holdPicture(ts); }
   trackerBusy = true; trackerSentAt = performance.now();
   createImageBitmap(trackC).then((tb) => landmarker.post({ type: 'frame', ts, track: tb }, [tb])).catch(() => { trackerBusy = false; });
   // look for small faces too (groups), in the finder worker whenever it's free
@@ -336,6 +354,7 @@ const nextTrackResult = () => new Promise((r) => trackWaiters.push(r));
 function onTrackResult(out) {
   trackerBusy = false;
   answeredTs = out.ts;
+  shownPic = heldPics.find((p) => p.ts === out.ts) || shownPic; // (phones) this frame's picture can be shown now
   queueMicrotask(() => trackWaiters.splice(0).forEach((r) => r(out))); // after this result is stored
   trackCost = trackCost * 0.9 + out.ms * 0.1;
   if (!out.main) { lastResult = null; faces = []; return; }
@@ -524,7 +543,7 @@ function drawHandLayer(now, look) {
   hctx.imageSmoothingQuality = 'high';
   hctx.drawImage(segMask, 0, 0, SEG, SEG, r.x * s + ox, r.y * s + oy, r.w * s, r.h * s);
   hctx.globalCompositeOperation = 'source-in'; // camera pixels, only where the mask says "hand"
-  hctx.drawImage(video, r.x, r.y, r.w, r.h, r.x * s + ox, r.y * s + oy, r.w * s, r.h * s);
+  hctx.drawImage(pictureNow(FILTERS[current])?.c || video, r.x, r.y, r.w, r.h, r.x * s + ox, r.y * s + oy, r.w * s, r.h * s); // same picture as underneath
   hctx.restore();
   if (handLayer.style.filter !== look) handLayer.style.filter = look; // same colours as the camera picture
 }
@@ -1335,12 +1354,18 @@ function watchFrames() {
   if (!(video instanceof HTMLVideoElement) || !('requestVideoFrameCallback' in video)) { watching = null; return; }
   const v = video; watching = v;
   // A new camera frame goes to the face tracker straight away, not at the next screen refresh.
-  const tick = () => { if (watching !== v) return; cameraFrames++; frameArrivedAt = performance.now(); sendIfDue(frameArrivedAt); v.requestVideoFrameCallback(tick); };
+  const tick = () => {
+    if (watching !== v) return;
+    cameraFrames++;
+    const t = performance.now();
+    if (t - frameArrivedAt < 200) camInterval = camInterval * 0.9 + (t - frameArrivedAt) * 0.1; // how often frames come (33 ms at 30/s, 17 at 60/s)
+    frameArrivedAt = t; sendIfDue(t); v.requestVideoFrameCallback(tick);
+  };
   v.requestVideoFrameCallback(tick);
 }
 // Send the newest camera frame to the face tracker, if this filter uses faces and the tracker is free.
 // sentFrame remembers which camera frame that was, so it can be drawn together with its own answer.
-let sentFrame = { n: -1, ts: -1, at: 0 }, answeredTs = -1, frameArrivedAt = 0;
+let sentFrame = { n: -1, ts: -1, at: 0 }, answeredTs = -1, frameArrivedAt = 0, camInterval = 33;
 function sendIfDue(now) {
   const F = FILTERS[current];
   if (!(video.videoWidth || video.width)) return;
@@ -1358,7 +1383,9 @@ function render(now) {
   // answer (about 15 ms; a new frame only comes every 33 ms), so the filter is drawn on the very frame its face
   // was found in instead of trailing a frame behind. Never wait more than 30 ms (a slow or lost answer).
   // (When tracking itself takes longer than that, as on many phones, waiting can't line them up and only adds delay: draw right away.)
-  if (watching === video && trackCost < 25 && sentFrame.n === cameraFrames && answeredTs !== sentFrame.ts && performance.now() - sentFrame.at < 30) return;
+  // (Only while answers come back well within one camera frame; otherwise waiting would only add delay.)
+  const waitCap = Math.min(30, camInterval * 0.8);
+  if (watching === video && trackCost < waitCap && sentFrame.n === cameraFrames && answeredTs !== sentFrame.ts && performance.now() - sentFrame.at < waitCap) return;
   drawnFrames = cameraFrames;
   lastDraw = now;
   if (photoWanted) { photoWanted = false; return snapFrame(now); }
@@ -1388,6 +1415,7 @@ function frame(now) {
 
   // 2. camera picture
   const { vw, vh, s, ox, oy } = frameFit();
+  const held = pictureNow(F), pic = held ? held.c : video;
   bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   bctx.imageSmoothingQuality = 'high'; // resizing the canvas resets this, so set it every frame
   bctx.clearRect(0, 0, W, H);
@@ -1396,12 +1424,12 @@ function frame(now) {
   if (F.pixel) {
     const cols = 48, rows = Math.round(cols * H / W);
     small.width = cols; small.height = rows;
-    sctx.drawImage(video, -ox / s, -oy / s, W / s, H / s, 0, 0, cols, rows);
+    sctx.drawImage(pic, -ox / s, -oy / s, W / s, H / s, 0, 0, cols, rows);
     bctx.imageSmoothingEnabled = false;
     bctx.drawImage(small, 0, 0, W, H);
     bctx.imageSmoothingEnabled = true;
   } else {
-    bctx.drawImage(video, ox, oy, vw * s, vh * s);
+    bctx.drawImage(pic, ox, oy, vw * s, vh * s);
   }
   bctx.restore();
   if (F.mirror) {
@@ -1424,7 +1452,7 @@ function frame(now) {
   const outlined = F.build && handMaskFresh(now); // exact hand outline this frame (otherwise fall back to rough hand shapes)
   stage3d?.update(needsFace(F) ? lastResult : null, frameFit(), facing === 'user', dt / 1000, t, F.build && now - handsAt < 300 ? lastHands : null,
     { cutout: !outlined, handCover: F.build ? handCover : null, tongue: F.build ? tongues : null,
-      pictureTs: sentFrame.n === cameraFrames ? sentFrame.ts : watching === video ? frameArrivedAt : now }); // when the drawn camera frame came in
+      pictureTs: held ? held.ts : sentFrame.n === cameraFrames ? sentFrame.ts : watching === video ? frameArrivedAt : now }); // when the drawn camera frame came in
   drawParticles(dt);
   if (F.build && now - handsAt < 300 && !outlined) eraseHands(lastHands); // after all 2D effects are drawn
   drawHandLayer(F.build ? now : -1e9, look); // your real hand on top of everything
@@ -1648,13 +1676,39 @@ async function openCamera() {
   stream?.getTracks().forEach((tr) => tr.stop());
   // 1080p is sharp on phones and laptops; 4K looked about the same but made computers run hot and slow.
   // Phones held upright hand back a tall picture. Cameras that can't do 1080p just give their best.
+  // Computers: up to 60 frames a second where the camera can (an iPhone used as the Mac's camera can; the
+  // MacBook's own camera stops at 30), so moves show up sooner and look smoother.
+  const want = (extra = {}) => ({ audio: false, video: {
+    facingMode: facing, width: { ideal: PHONE ? 1280 : 1920 }, height: { ideal: PHONE ? 720 : 1080 },
+    frameRate: PHONE ? { ideal: 30, max: 30 } : { ideal: 60, max: 60 }, resizeMode: { ideal: 'none' }, ...extra, // phones: 720p is plenty on their screen, and much less work
+  } });
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
-      facingMode: facing, width: { ideal: PHONE ? 1280 : 1920 }, height: { ideal: PHONE ? 720 : 1080 }, frameRate: { ideal: 30, max: 30 }, resizeMode: { ideal: 'none' }, // phones: 720p is plenty on their screen, and much less work
-    } });
+    stream = await navigator.mediaDevices.getUserMedia(want());
   } catch (e) {
     if (e.name !== 'OverconstrainedError') throw e;
     stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: facing } });
+  }
+  // On a computer with an iPhone nearby (Continuity Camera), use the iPhone: it's faster and sharper.
+  // The flip button then switches between the iPhone and the computer's own camera.
+  if (!PHONE && facing === 'user') {
+    try {
+      const iphone = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && /iphone/i.test(d.label));
+      if (iphone && stream.getVideoTracks()[0]?.getSettings().deviceId !== iphone.deviceId) {
+        const s2 = await navigator.mediaDevices.getUserMedia(want({ facingMode: undefined, deviceId: { exact: iphone.deviceId } }));
+        stream.getTracks().forEach((tr) => tr.stop());
+        stream = s2;
+      }
+    } catch (e) { console.warn('iPhone camera unavailable, using this computer\'s camera', e); }
+  } else if (!PHONE && facing === 'environment') {
+    // flipped on a computer: the computer's own camera, if the iPhone was picked by default
+    try {
+      const own = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && !/iphone/i.test(d.label));
+      if (own && stream.getVideoTracks()[0]?.getSettings().deviceId !== own.deviceId) {
+        const s2 = await navigator.mediaDevices.getUserMedia(want({ facingMode: undefined, deviceId: { exact: own.deviceId } }));
+        stream.getTracks().forEach((tr) => tr.stop());
+        stream = s2;
+      }
+    } catch (e) { console.warn('camera switch', e); }
   }
   autoAdjust(stream.getVideoTracks()[0]);
   video.srcObject = stream;
@@ -1709,6 +1763,26 @@ window.__silly = { FILTERS, select, frame, takePhoto, useSource(src) { video = s
     frame(performance.now()); return faces.length;
   }, get trackCost() { return trackCost; }, get frameCost() { return frameCost; }, get landmarker() { return landmarker; }, get lastResult() { return lastResult; }, get stage3d() { return stage3d; }, get lastHands() { return lastHands; }, get handMask() { return handMask; }, get handOnFace() { return handOnFace; }, get handCover() { return handCover; }, get tongues() { return tongues; }, // test hooks
    get faces() { return faces; }, get faceStatus() { return faceStatus; } };
+// Hidden speed readout, only when the address ends in ?speed (for checking a phone; numbers only, nothing is sent anywhere).
+if (new URLSearchParams(location.search).has('speed')) {
+  const box = Object.assign(document.createElement('div'), { id: 'speedBox' });
+  Object.assign(box.style, { position: 'fixed', left: '8px', top: 'calc(env(safe-area-inset-top) + 8px)', zIndex: 99, font: '12px/1.35 ui-monospace, monospace',
+    color: '#fff', background: 'rgba(0,0,0,.6)', padding: '6px 8px', borderRadius: '8px', pointerEvents: 'none', whiteSpace: 'pre' });
+  document.body.appendChild(box);
+  let draws = 0, cams = 0, last = performance.now(), ages = [];
+  const count = () => { draws++; if (lastResult?.ts) ages.push(performance.now() - lastResult.ts); requestAnimationFrame(count); };
+  requestAnimationFrame(count);
+  setInterval(() => {
+    const now = performance.now(), secs = (now - last) / 1000; last = now;
+    const camFps = (cameraFrames - cams) / secs; cams = cameraFrames;
+    ages.sort((x, y) => x - y);
+    box.textContent = [`phone ${PHONE}  worker ${!!landmarker?.worker}  synced ${!!pictureNow(FILTERS[current])}`,
+      `camera ${video.videoWidth}x${video.videoHeight} @ ${camFps.toFixed(0)}/s   screen ${(draws / secs).toFixed(0)}/s`,
+      `find face ${trackCost.toFixed(0)} ms   draw ${frameCost.toFixed(0)} ms`,
+      `filter is ${ages.length ? ages[ages.length >> 1].toFixed(0) : '-'} ms behind   faces ${faces.length}`].join('\n');
+    draws = 0; ages = [];
+  }, 1000);
+}
 </script>
 </body>
 </html>

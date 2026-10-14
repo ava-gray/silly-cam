@@ -20,12 +20,12 @@ export async function createStage3D(canvas, opts = {}) {
   THREE = await import('three'); // mapped to the CDN build by the import map in index.html
   ({ RoundedBoxGeometry } = await import(`https://cdn.jsdelivr.net/npm/three@${V}/examples/jsm/geometries/RoundedBoxGeometry.js`));
 
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' }); // smooth edges: jagged ones shimmer like grain
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !PHONE, powerPreference: 'low-power' }); // smooth edges: jagged ones shimmer like grain (phones: off, a big saving at phone size)
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
-  renderer.shadowMap.enabled = true; // hats, glasses and ears cast soft shadows on your face
+  renderer.shadowMap.enabled = !PHONE; // hats, glasses and ears cast soft shadows on your face (phones: off, it's a whole extra drawing pass)
   renderer.shadowMap.type = THREE.VSMShadowMap; // soft-edged, like shadows from room lights
 
   const scene = new THREE.Scene();
@@ -34,7 +34,7 @@ export async function createStage3D(canvas, opts = {}) {
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.6);
   sun.position.set(0.3, 1, 1);
-  sun.castShadow = true;
+  sun.castShadow = !PHONE;
   sun.shadow.mapSize.set(PHONE ? 512 : 1024, PHONE ? 512 : 1024); // phones: half the shadow pixels, same softness (radius below)
   Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 160 });
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
@@ -74,7 +74,7 @@ export async function createStage3D(canvas, opts = {}) {
     if (key !== size) {
       size = key;
       const w = Math.round(fit.vw * fit.s), h = Math.round(fit.vh * fit.s);
-      renderer.setPixelRatio(PHONE ? 1 : Math.min(window.devicePixelRatio || 1, w * h > 1.5e6 ? 1.25 : 1.5)); // phones: 1x (smooth edges come from antialias)
+      renderer.setPixelRatio(PHONE ? 1 : Math.min(window.devicePixelRatio || 1, w * h > 1.5e6 ? 1.25 : 1.5)); // phones: 1x
       renderer.setSize(w, h);
       Object.assign(canvas.style, { left: fit.ox + 'px', top: fit.oy + 'px', transform: mirror ? 'scaleX(-1)' : 'none' });
       camera.aspect = fit.vw / fit.vh;
