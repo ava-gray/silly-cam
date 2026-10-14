@@ -689,22 +689,19 @@ export const HALLOWEEN_3D = [
       // The face's shape comes from MediaPipe's face model, sampled once into a small height map.
       const zAt = faceHeights();
       const normalAt = (x, y) => new THREE.Vector3(zAt(x - 0.3, y) - zAt(x + 0.3, y), zAt(x, y - 0.3) - zAt(x, y + 0.3), 0.6).normalize();
-      const loop = (a) => [6 * Math.sin(a), 0.6 + 7.4 * Math.cos(a)]; // the walking route
+      const loop = (a) => [6.3 * Math.sin(a), 0.5 + 7.7 * Math.cos(a)]; // the walking route: all the way round your face
       const w = new Wobble(18, 1.5, 0);
       kit.zone(spider, 2.2, { wobble: w, burst: 0xffffff });
-      let a = Math.PI * 0.3, dir = 1, pause = 0, nextStop = 2 + Math.random() * 3, scurry = 0, stride = 0;
+      let a = Math.PI * 0.3, scurry = 0, stride = 0;
+      const dir = 1; // always the same way round: it never turns back
       const m4 = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(), F = new THREE.Vector3();
       return (st) => {
         const dt = Math.min(st.dt, 1 / 20);
         w.step(st);
-        // touch it and it scurries off, the way your finger pushed it
-        if (Math.abs(w.vx) > 3 && scurry <= 0) { scurry = 1.4; dir = Math.sign(w.vx) || dir; pause = 0; }
+        // touch it and it hurries on round your face (same direction, just faster for a moment)
+        if (Math.abs(w.vx) > 3 && scurry <= 0) scurry = 1.4;
         scurry -= dt;
-        // now and then it stops for a moment (and sometimes turns round)
-        nextStop -= dt;
-        if (nextStop <= 0 && scurry <= 0) { pause = 0.5 + Math.random() * 1.1; nextStop = pause + 2 + Math.random() * 4; if (Math.random() < 0.3) dir = -dir; }
-        pause -= dt;
-        const moving = pause > 0 ? 0 : scurry > 0 ? 3 : 1;
+        const moving = scurry > 0 ? 1 + 2 * Math.min(1, scurry / 0.7) : 1; // eases back to its normal pace
         a += dir * 0.6 * moving * dt;
         // place it on the skin, facing the way it walks
         const [x, y] = loop(a), [x2, y2] = loop(a + dir * 0.05);

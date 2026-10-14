@@ -99,7 +99,7 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 <script type="module">
-import { createStage3D, FILTERS_3D } from './filters3d.js';
+import { createStage3D, FILTERS_3D, PHONE } from './filters3d.js';
 import { HALLOWEEN_3D, MORE_3D } from './filters-more.js';
 import { CREATURES } from './creatures.js';
 import { FACE_POSITIONS } from './facemesh.js';
@@ -153,7 +153,15 @@ async function loadFaceTracker() {
       runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false,
     });
     ImageSegmenter.createFromOptions(files, segOpts('GPU')).catch(() => ImageSegmenter.createFromOptions(files, segOpts('CPU')))
-      .then((sg) => (skinFinder = sg)).catch((e) => console.warn('Hand outlines unavailable', e));
+      .then((sg) => {
+        // warm it up once now (shader setup, first mask read), so the first hand on your face doesn't freeze the picture
+        try {
+          const warm = document.createElement('canvas'); warm.width = warm.height = 256;
+          warm.getContext('2d').fillRect(0, 0, 256, 256);
+          sg.segmentForVideo(warm, ++segTs, (res) => res.confidenceMasks?.forEach((m) => m.getAsFloat32Array()));
+        } catch (e) { console.warn('Skin finder warm-up skipped', e); }
+        skinFinder = sg;
+      }).catch((e) => console.warn('Hand outlines unavailable', e));
     try { stage3d = await createStage3D(gl, { picture: base }); /* the camera picture, so 3D filters match the room's light */ stage3d.setFilter(FILTERS[current]); }
     catch (e) { console.warn('3D unavailable', e); }
     faceStatus = 'ready';
@@ -237,7 +245,7 @@ function runHands(now) {
   if (handBusy && now - handSentAt < 1000) return; // the worker is still looking (never wait forever on a lost answer)
   handVideoTime = video.currentTime;
   const seeing = lastHands?.landmarks?.length > 0;
-  if (handFrame++ % (handOnFace ? 1 : seeing ? 2 : 4)) return; // every frame while touching your face
+  if (handFrame++ % (PHONE ? (handOnFace ? 2 : seeing ? 3 : 6) : (handOnFace ? 1 : seeing ? 2 : 4))) return; // every frame while touching your face (phones: half as often)
   handTs = Math.max(handTs + 1, now);
   if (handWorker) {
     handBusy = true; handSentAt = now;
@@ -312,6 +320,8 @@ function sendFrame(ts, F) {
   if (finderBusy && performance.now() - finderSentAt > 2000) finderBusy = false;
   const finder = finderTracker || (!landmarker.worker ? landmarker : null);
   if (!finder || finderBusy || lastMainCount >= MAX_FACES) return;
+  // Phones: a quick group look about twice a second, so the main face tracker gets the phone's few fast cores
+  if (PHONE && performance.now() - finderSentAt < 450) return;
   const sl = pickSlice();
   if (!sl) return;
   finderBusy = true; finderSentAt = performance.now();
@@ -325,6 +335,7 @@ const trackWaiters = []; // test hook: promises waiting for the next tracking an
 const nextTrackResult = () => new Promise((r) => trackWaiters.push(r));
 function onTrackResult(out) {
   trackerBusy = false;
+  answeredTs = out.ts;
   queueMicrotask(() => trackWaiters.splice(0).forEach((r) => r(out))); // after this result is stored
   trackCost = trackCost * 0.9 + out.ms * 0.1;
   if (!out.main) { lastResult = null; faces = []; return; }
@@ -434,7 +445,7 @@ function updateHandMask(ts, now) {
   if (!handOnFace) { handMask = null; return; }
   // The skin finder is the slowest part of the app while a hand is near (≈2/3 of the frame), so run it
   // every other frame and keep showing the last outline (one frame old) in between.
-  if ((++maskTick & 1) && handMask && now - handMask.at < 90) return;
+  if ((++maskTick % (PHONE ? 3 : 2)) && handMask && now - handMask.at < (PHONE ? 130 : 90)) return; // (phones: every 3rd frame)
 
   // One square around the faces and the hands touching them.
   const all = [...faceBoxes, ...near];
@@ -592,7 +603,7 @@ function updateTongues(now) {
     if (!lm) { tongueState[i] = null; return 0; }
     const st = tongueState[i] ||= { on: 0, hits: 0, n: 0 };
     if (handCover[i]?.mouth) return st.on; // a hand over your mouth can look pink: keep what we had
-    if (st.n++ & 1) return st.on; // every other frame is plenty (two looks in a row still decide)
+    if (st.n++ % (PHONE ? 3 : 2)) return st.on; // every 2nd frame is plenty (every 3rd on phones); two looks in a row still decide
     const seen = tongueOut(lm, shapes[i]?.categories, st, vw, vh);
     st.hits = seen ? Math.min(3, st.hits + 1) : Math.max(0, st.hits - 1);
     if (st.hits >= 2) st.on = 1; else if (st.hits === 0) st.on = 0; // two frames in a row to start, so it doesn't flicker
@@ -1323,12 +1334,31 @@ let cameraFrames = 0, drawnFrames = -1, watching = null;
 function watchFrames() {
   if (!(video instanceof HTMLVideoElement) || !('requestVideoFrameCallback' in video)) { watching = null; return; }
   const v = video; watching = v;
-  const tick = () => { if (watching !== v) return; cameraFrames++; v.requestVideoFrameCallback(tick); };
+  // A new camera frame goes to the face tracker straight away, not at the next screen refresh.
+  const tick = () => { if (watching !== v) return; cameraFrames++; frameArrivedAt = performance.now(); sendIfDue(frameArrivedAt); v.requestVideoFrameCallback(tick); };
   v.requestVideoFrameCallback(tick);
+}
+// Send the newest camera frame to the face tracker, if this filter uses faces and the tracker is free.
+// sentFrame remembers which camera frame that was, so it can be drawn together with its own answer.
+let sentFrame = { n: -1, ts: -1, at: 0 }, answeredTs = -1, frameArrivedAt = 0;
+function sendIfDue(now) {
+  const F = FILTERS[current];
+  if (!(video.videoWidth || video.width)) return;
+  if (trackerBusy && now - trackerSentAt > 2000) trackerBusy = false; // never wait forever on a lost answer
+  if (!landmarker || !needsFace(F) || trackerBusy || video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  detectTs = Math.max(detectTs + 1, now); // MediaPipe jams for good if a timestamp ever goes backwards
+  sentFrame = { n: cameraFrames, ts: detectTs, at: performance.now() };
+  sendFrame(detectTs, F);
 }
 function render(now) {
   requestAnimationFrame(render);
   if (watching === video ? cameraFrames === drawnFrames && now - lastDraw < 100 : now - lastDraw < 30) return;
+  // Keep the picture and the face filter in step: if this camera frame went to the face tracker, wait for its
+  // answer (about 15 ms; a new frame only comes every 33 ms), so the filter is drawn on the very frame its face
+  // was found in instead of trailing a frame behind. Never wait more than 30 ms (a slow or lost answer).
+  // (When tracking itself takes longer than that, as on many phones, waiting can't line them up and only adds delay: draw right away.)
+  if (watching === video && trackCost < 25 && sentFrame.n === cameraFrames && answeredTs !== sentFrame.ts && performance.now() - sentFrame.at < 30) return;
   drawnFrames = cameraFrames;
   lastDraw = now;
   if (photoWanted) { photoWanted = false; return snapFrame(now); }
@@ -1347,13 +1377,10 @@ function frame(now) {
   const F = FILTERS[current];
   if (!(video.videoWidth || video.width)) return;
 
-  // 1. find faces (only when this filter uses them): the worker looks while we keep drawing
-  if (trackerBusy && now - trackerSentAt > 2000) trackerBusy = false; // never wait forever on a lost answer
-  if (landmarker && needsFace(F) && !trackerBusy && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    detectTs = Math.max(detectTs + 1, now); // MediaPipe jams for good if a timestamp ever goes backwards
-    sendFrame(detectTs, F);
-  }
+  // 1. find faces (only when this filter uses them): the worker looks while we keep drawing.
+  // With a camera that says when frames arrive, each frame was already sent the moment it came in (sending
+  // here too would send the same frame again and keep the tracker busy for the next one). Otherwise send now.
+  if (watching !== video || lastVideoTime === -1) sendIfDue(now);
   if (F.build) runHands(now);
   // hand outlines come from the very frame being drawn, using the latest faces and hands
   if (F.build) { maskTs = Math.max(maskTs + 1, now); try { updateHandMask(maskTs, now); } catch (e) { handMask = null; console.warn('hand outline', e); } } // never let this break the face filters
@@ -1396,7 +1423,8 @@ function frame(now) {
   if (F.snow) snowfall(t); // real falling snow (soft flakes and a few crystals), not emoji
   const outlined = F.build && handMaskFresh(now); // exact hand outline this frame (otherwise fall back to rough hand shapes)
   stage3d?.update(needsFace(F) ? lastResult : null, frameFit(), facing === 'user', dt / 1000, t, F.build && now - handsAt < 300 ? lastHands : null,
-    { cutout: !outlined, handCover: F.build ? handCover : null, tongue: F.build ? tongues : null });
+    { cutout: !outlined, handCover: F.build ? handCover : null, tongue: F.build ? tongues : null,
+      pictureTs: sentFrame.n === cameraFrames ? sentFrame.ts : watching === video ? frameArrivedAt : now }); // when the drawn camera frame came in
   drawParticles(dt);
   if (F.build && now - handsAt < 300 && !outlined) eraseHands(lastHands); // after all 2D effects are drawn
   drawHandLayer(F.build ? now : -1e9, look); // your real hand on top of everything
@@ -1419,7 +1447,7 @@ function setHint(text) {
 }
 
 function resize() {
-  DPR = Math.min(1.5, window.devicePixelRatio || 1); // the camera is only 720p, so more pixels just burn battery
+  DPR = Math.min(PHONE ? 1 : 1.5, window.devicePixelRatio || 1); // more pixels than the camera has just burn battery (phones: 1x)
   W = innerWidth; H = innerHeight;
   for (const c of [base, fx, handLayer]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
 }
@@ -1622,7 +1650,7 @@ async function openCamera() {
   // Phones held upright hand back a tall picture. Cameras that can't do 1080p just give their best.
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
-      facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 }, resizeMode: { ideal: 'none' },
+      facingMode: facing, width: { ideal: PHONE ? 1280 : 1920 }, height: { ideal: PHONE ? 720 : 1080 }, frameRate: { ideal: 30, max: 30 }, resizeMode: { ideal: 'none' }, // phones: 720p is plenty on their screen, and much less work
     } });
   } catch (e) {
     if (e.name !== 'OverconstrainedError') throw e;
